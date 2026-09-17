@@ -149,6 +149,7 @@ if (Test-Path $vpy) {
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $vpy)) { Die "venv creation failed" }
 }
 & $vpy -m pip install --quiet --upgrade pip setuptools wheel
+if ($LASTEXITCODE -ne 0) { Die "Could not upgrade pip inside the virtualenv." }
 Ok "pip $(& $vpy -m pip --version | ForEach-Object { $_.Split(' ')[1] })"
 
 # ------------------------------------------------------------------- torch
@@ -189,10 +190,14 @@ if (-not $NoGui) {
 if ($WithDemucs) {
     Info "Installing Demucs"
     & $vpy -m pip install "demucs==4.0.1"
+    if ($LASTEXITCODE -ne 0) { Warn "Demucs failed to install. Everything else still works; background separation will be unavailable." }
 }
 if ($WithKokoro) {
     Info "Installing Kokoro"
     & $vpy -m pip install "kokoro>=0.9.2" "misaki[en]>=0.9.3"
+    if ($LASTEXITCODE -ne 0) {
+        Warn "Kokoro failed to install. Everything else still works; use the Piper voice."
+    }
     if (-not (Get-Command espeak-ng -ErrorAction SilentlyContinue)) {
         Warn "espeak-ng is not installed. Kokoro works without it but mispronounces unusual words.
        Get it from https://github.com/espeak-ng/espeak-ng/releases"
