@@ -101,7 +101,7 @@ def pip_install(args: List[str], reporter: Reporter, label: str) -> None:
            "--disable-pip-version-check"] + args
     reporter.log(f"Installing {label}...")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
+                            text=True, encoding="utf-8", errors="replace", bufsize=1)
     tail: List[str] = []
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -163,7 +163,8 @@ def install_ffmpeg(reporter: Reporter, base: float, span: float) -> None:
 
 def install_torch(reporter: Reporter, force_cpu: bool) -> None:
     check = subprocess.run([python_exe(), "-c", "import torch; print(torch.__version__)"],
-                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           text=True, encoding="utf-8", errors="replace")
     if check.returncode == 0:
         reporter.log(f"PyTorch already installed ({check.stdout.strip()})")
         return
@@ -189,7 +190,8 @@ def download_models(preset: str, reporter: Reporter) -> None:
     env["PYTHONPATH"] = str(INSTALL_ROOT / "src")
     reporter.log(f"Downloading the '{preset}' models. This is the slow part.")
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1, cwd=str(INSTALL_ROOT), env=env)
+                            text=True, encoding="utf-8", errors="replace", bufsize=1,
+                            cwd=str(INSTALL_ROOT), env=env)
     assert proc.stdout is not None
     tail: List[str] = []
     for line in proc.stdout:
@@ -219,7 +221,7 @@ def verify(reporter: Reporter) -> None:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(INSTALL_ROOT / "src")
     proc = subprocess.run([python_exe(), "-c", script], stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True,
+                          stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                           cwd=str(INSTALL_ROOT), env=env)
     reporter.log(proc.stdout.strip())
     if proc.returncode != 0:

@@ -83,7 +83,8 @@ def _probe_nvidia_smi() -> Optional[tuple]:
         proc = subprocess.run(
             [exe, "--query-gpu=name,memory.total,driver_version",
              "--format=csv,noheader,nounits"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, encoding="utf-8", errors="replace",
             timeout=10, creationflags=subprocess_flags(),
         )
     except (subprocess.SubprocessError, OSError):

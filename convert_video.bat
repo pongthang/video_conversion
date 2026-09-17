@@ -20,6 +20,9 @@ REM Keep model downloads inside the project directory.
 if not defined HF_HOME    set "HF_HOME=%PROJECT_DIR%models\hf"
 if not defined TORCH_HOME set "TORCH_HOME=%PROJECT_DIR%models\torch"
 set "TOKENIZERS_PARALLELISM=false"
+REM The console is cp1252 by default; Chinese source text in the log would
+REM otherwise raise UnicodeEncodeError partway through a run.
+set "PYTHONIOENCODING=utf-8"
 set "PATH=%PROJECT_DIR%bin;%PROJECT_DIR%.venv\Scripts;%PATH%"
 REM Safety net: the editable install normally makes vtrans importable, but it
 REM can fail quietly on paths with spaces. Naming src directly costs nothing.

@@ -159,7 +159,29 @@ def prepare(models_dir: Path | None = None) -> None:
     if bin_dir.is_dir():
         os.environ["PATH"] = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
 
+    _use_utf8_streams()
     _expose_cuda_libraries()
+
+
+def _use_utf8_streams() -> None:
+    """Make this process's own stdout/stderr UTF-8.
+
+    A Windows console is cp1252 by default, so logging a Chinese source line,
+    or a path with an accented character, raises UnicodeEncodeError in the
+    middle of a run. errors="replace" means an unrepresentable character costs
+    a question mark rather than the whole conversion.
+
+    The child process started by the GUI is also told this through
+    PYTHONIOENCODING, but the command line has no such wrapper.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):    # already detached, or not a real tty
+            pass
 
 
 def subprocess_flags() -> int:

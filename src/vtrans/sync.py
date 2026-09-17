@@ -49,7 +49,8 @@ class Clip:
 
 def _has_rubberband() -> bool:
     proc = subprocess.run([binaries.ffmpeg(), "-hide_banner", "-filters"],
-                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                          text=True, encoding="utf-8", errors="replace",
                           creationflags=subprocess_flags())
     return "rubberband" in (proc.stdout or "")
 

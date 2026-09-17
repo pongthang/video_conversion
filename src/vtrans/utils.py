@@ -85,7 +85,7 @@ def run(cmd: Sequence[str], *, check: bool = True, capture: bool = True,
             check=False,
             stdout=subprocess.PIPE if capture else None,
             stderr=subprocess.PIPE if capture else None,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             # Without this every ffmpeg call flashes a console window when the
             # pipeline runs under the GUI on Windows. No effect on Linux.
             creationflags=subprocess_flags(),
@@ -122,7 +122,7 @@ def run_with_progress(cmd: Sequence[str], *, total_seconds: float,
         argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         bufsize=1,
         creationflags=subprocess_flags(),
     )
@@ -184,7 +184,18 @@ def ffprobe_json(path: Path) -> Dict[str, Any]:
         binaries.ffprobe(), "-v", "error", "-print_format", "json",
         "-show_format", "-show_streams", str(path),
     ], desc="ffprobe")
-    return json.loads(proc.stdout)
+    # Say what actually went wrong. Handing None straight to json.loads gives
+    # "the JSON object must be str, bytes or bytearray, not NoneType", which
+    # says nothing about the file that could not be read.
+    if not proc.stdout:
+        raise RuntimeError(
+            f"ffprobe returned nothing for {path}. The file may be unreadable "
+            f"or not a media file."
+        )
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Could not parse ffprobe output for {path}: {exc}") from exc
 
 
 def media_duration(path: Path) -> float:
