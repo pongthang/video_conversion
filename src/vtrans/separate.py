@@ -6,12 +6,15 @@ original bed stay under the English voice.
 """
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Optional
 
+from . import binaries
 from .device import DeviceInfo
 from .utils import run
 
@@ -27,7 +30,7 @@ def separate_background(audio: Path, out_dir: Path, models_dir: Path, dev: Devic
         LOG.info("Reusing separated background: %s", final.name)
         return final
 
-    if shutil.which("demucs") is None:
+    if importlib.util.find_spec("demucs") is None:
         LOG.warning("demucs is not installed; skipping background separation. "
                     "Install it with: pip install demucs")
         return None
@@ -37,8 +40,10 @@ def separate_background(audio: Path, out_dir: Path, models_dir: Path, dev: Devic
     os.environ.setdefault("TORCH_HOME", str(env_home))
 
     stage = out_dir / "demucs"
+    # Invoke the module rather than the console script: on Windows the
+    # demucs.exe shim is only on PATH if the Scripts directory was added.
     cmd = [
-        "demucs", "--two-stems", "vocals", "-n", model,
+        sys.executable, "-m", "demucs", "--two-stems", "vocals", "-n", model,
         "-o", str(stage), "--filename", "{stem}.{ext}",
         "-d", "cuda" if dev.is_cuda else "cpu",
     ]
@@ -59,7 +64,7 @@ def separate_background(audio: Path, out_dir: Path, models_dir: Path, dev: Devic
         LOG.warning("Demucs produced no 'no_vocals' stem; continuing without background.")
         return None
 
-    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+    run([binaries.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
          "-i", str(candidates[0]), "-ac", "2", "-acodec", "pcm_s16le", str(final)],
         desc="ffmpeg (background convert)")
     shutil.rmtree(stage, ignore_errors=True)

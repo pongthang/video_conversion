@@ -26,6 +26,8 @@ import soundfile as sf
 
 from .segment import Sentence, strip_for_tts
 from .tts import TTSEngine
+from . import binaries
+from .runtime import subprocess_flags
 from .utils import fmt_duration, run
 
 LOG = logging.getLogger("vtrans")
@@ -46,8 +48,9 @@ class Clip:
 
 
 def _has_rubberband() -> bool:
-    proc = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
-                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    proc = subprocess.run([binaries.ffmpeg(), "-hide_banner", "-filters"],
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                          creationflags=subprocess_flags())
     return "rubberband" in (proc.stdout or "")
 
 
@@ -84,7 +87,7 @@ class TimeStretcher:
         sf.write(src, audio, self.sample_rate, subtype="PCM_16")
         af = (f"rubberband=tempo={factor:.6f}:pitch=1:transients=crisp"
               if self.use_rubberband else _atempo_chain(factor))
-        run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        run([binaries.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
              "-i", str(src), "-af", af, str(dst)], desc="ffmpeg (time stretch)")
         out, _ = sf.read(dst, dtype="float32", always_2d=False)
         return np.asarray(out, dtype=np.float32).reshape(-1)
@@ -230,7 +233,7 @@ def mix_with_background(dub_wav: Path, background_wav: Optional[Path], out_wav: 
     if background_wav and background_wav.exists():
         LOG.info("Mixing dub with background bed at %.1f dB", background_gain_db)
         run([
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            binaries.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
             "-i", str(dub_wav), "-i", str(background_wav),
             "-filter_complex",
             # amix gained its `normalize` option in ffmpeg 4.4, so instead let it
@@ -245,7 +248,7 @@ def mix_with_background(dub_wav: Path, background_wav: Optional[Path], out_wav: 
         ], desc="ffmpeg (mix)")
     else:
         run([
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            binaries.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
             "-i", str(dub_wav),
             "-af", f"loudnorm=I={loudness_lufs}:TP=-1.5:LRA=11,aresample={sample_rate}",
             "-ac", "2", "-ar", str(sample_rate),

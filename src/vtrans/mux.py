@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
+from . import binaries
+from .binaries import IS_WINDOWS
 from .utils import ffmpeg_has, has_audio_stream, run
 
 LOG = logging.getLogger("vtrans")
@@ -45,8 +47,25 @@ def nvenc_qp(crf: int) -> int:
 
 
 def _escape_filter_path(path: Path) -> str:
-    """Escape a path for use inside an ffmpeg filter argument."""
+    """Escape a path for use inside an ffmpeg filter argument.
+
+    ffmpeg parses filter arguments in two passes, so the separators have to be
+    escaped for both. Windows needs different treatment from POSIX: a backslash
+    is a path separator there, not an escape, and the drive-letter colon would
+    otherwise be read as the start of the next filter option. The accepted form
+    is forward slashes with the colon escaped once:
+
+        C:\\jobs\\subs.ass   ->   C\\:/jobs/subs.ass
+        /home/u/subs.ass  ->   /home/u/subs.ass   (unchanged)
+    """
     text = str(path)
+    if IS_WINDOWS:
+        # libass and ffmpeg both accept forward slashes on Windows, and using
+        # them sidesteps backslash-as-escape ambiguity entirely.
+        text = text.replace("\\", "/")
+        for char in (":", "'", "[", "]", ","):
+            text = text.replace(char, "\\" + char)
+        return text
     for char in ("\\", ":", "'", "[", "]", ","):
         text = text.replace(char, "\\" + char)
     return text
@@ -63,7 +82,7 @@ def mux(video: Path, audio: Path, out_path: Path, *, ass_path: Optional[Path] = 
     has_orig_audio = keep_original_audio and has_audio_stream(video)
     container = out_path.suffix.lower()
 
-    cmd: List[str] = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-stats", "-y",
+    cmd: List[str] = [binaries.ffmpeg(), "-hide_banner", "-loglevel", "error", "-stats", "-y",
                       "-i", str(video), "-i", str(audio)]
 
     # The MP4/MOV muxer force-enables the first subtitle track whatever

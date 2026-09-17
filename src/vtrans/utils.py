@@ -11,6 +11,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
+from . import binaries
+from .runtime import subprocess_flags
+
 LOG = logging.getLogger("vtrans")
 
 
@@ -72,14 +75,23 @@ def fmt_duration(seconds: float) -> str:
 def run(cmd: Sequence[str], *, check: bool = True, capture: bool = True,
         desc: str | None = None) -> subprocess.CompletedProcess:
     """Run a subprocess, logging the command at DEBUG level."""
-    LOG.debug("$ %s", " ".join(str(c) for c in cmd))
-    proc = subprocess.run(
-        [str(c) for c in cmd],
-        check=False,
-        stdout=subprocess.PIPE if capture else None,
-        stderr=subprocess.PIPE if capture else None,
-        text=True,
-    )
+    argv = [str(c) for c in cmd]
+    LOG.debug("$ %s", " ".join(argv))
+    try:
+        proc = subprocess.run(
+            argv,
+            check=False,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.PIPE if capture else None,
+            text=True,
+            # Without this every ffmpeg call flashes a console window when the
+            # pipeline runs under the GUI on Windows. No effect on Linux.
+            creationflags=subprocess_flags(),
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"{desc or argv[0]} could not be started: {argv[0]} was not found."
+        ) from exc
     if check and proc.returncode != 0:
         tail = (proc.stderr or "").strip().splitlines()[-25:]
         raise RuntimeError(
@@ -89,15 +101,13 @@ def run(cmd: Sequence[str], *, check: bool = True, capture: bool = True,
 
 
 def require_tool(name: str, hint: str = "") -> str:
-    path = shutil.which(name)
-    if not path:
-        raise RuntimeError(f"Required tool '{name}' not found on PATH. {hint}")
-    return path
+    """Resolve an external tool, preferring a bundled copy over PATH."""
+    return binaries.require(name, hint)
 
 
 def ffprobe_json(path: Path) -> Dict[str, Any]:
     proc = run([
-        "ffprobe", "-v", "error", "-print_format", "json",
+        binaries.ffprobe(), "-v", "error", "-print_format", "json",
         "-show_format", "-show_streams", str(path),
     ], desc="ffprobe")
     return json.loads(proc.stdout)
@@ -125,7 +135,7 @@ def has_audio_stream(path: Path) -> bool:
 
 def ffmpeg_has(kind: str, name: str) -> bool:
     """kind: 'filters' | 'encoders' | 'decoders'."""
-    proc = run(["ffmpeg", "-hide_banner", f"-{kind}"], check=False)
+    proc = run([binaries.ffmpeg(), "-hide_banner", f"-{kind}"], check=False)
     return any(line.split()[1:2] == [name] for line in (proc.stdout or "").splitlines() if line.strip())
 
 

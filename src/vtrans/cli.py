@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .config import Config
+from .runtime import prepare as prepare_runtime
 from .pipeline import STAGES, Pipeline, job_id
 from .tts import PIPER_VOICES
 from .utils import Colors, setup_logging
@@ -143,6 +144,11 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = Config.load(args.config)
     apply_cli(cfg, args)
+
+    # Caches, thread limits and the CUDA loader path. convert_video.sh also
+    # exports most of these; doing it here too means `python -m vtrans` works
+    # on its own and the GUI gets identical treatment without a shell.
+    prepare_runtime(cfg.resolve_dir("general.models_dir"))
 
     if args.print_config:
         print(cfg.dump())

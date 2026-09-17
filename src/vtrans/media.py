@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple
 
+from . import binaries
 from .utils import media_duration, run
 
 LOG = logging.getLogger("vtrans")
@@ -44,7 +45,7 @@ def fetch_source(source: str, dest_dir: Path) -> Path:
            "b[height<=1080][vcodec^=avc1]/"
            "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b")
     run([
-        "yt-dlp",
+        binaries.require("yt-dlp", "It is installed by setup.sh / the Windows installer."),
         "-f", fmt,
         "--merge-output-format", "mp4",
         "--no-playlist",
@@ -68,7 +69,7 @@ def extract_audio(src: Path, dest: Path, sample_rate: int = 16000, channels: int
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        binaries.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(src),
         "-vn", "-sn", "-dn",
         "-ac", str(channels),
@@ -83,7 +84,7 @@ def detect_silences(audio: Path, noise_db: float = -35.0, min_duration: float = 
                     ) -> List[Tuple[float, float]]:
     """Return [(start, end)] of silent regions using ffmpeg's silencedetect."""
     proc = run([
-        "ffmpeg", "-hide_banner", "-nostats", "-i", str(audio),
+        binaries.ffmpeg(), "-hide_banner", "-nostats", "-i", str(audio),
         "-af", f"silencedetect=noise={noise_db}dB:d={min_duration}",
         "-f", "null", "-",
     ], desc="ffmpeg (silencedetect)")
@@ -171,7 +172,7 @@ def split_audio(audio: Path, spans: List[Tuple[float, float]], dest_dir: Path,
         out = dest_dir / f"chunk_{i:03d}.wav"
         if not out.exists() or out.stat().st_size == 0:
             run([
-                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                binaries.ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
                 "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}",
                 "-i", str(audio),
                 "-ac", "1", "-ar", str(sample_rate), "-acodec", "pcm_s16le",
