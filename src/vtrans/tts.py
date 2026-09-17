@@ -129,7 +129,18 @@ class PiperEngine(TTSEngine):
 
 class KokoroEngine(TTSEngine):
     def __init__(self, voice: str, models_dir: Path, device: str = "cpu"):
-        from kokoro import KPipeline
+        try:
+            from kokoro import KPipeline
+        except ImportError as exc:
+            # This lands at stage 6 of 8, after transcription and translation
+            # have already run, so the message has to say exactly what to do
+            # rather than leaving a bare ModuleNotFoundError.
+            raise RuntimeError(
+                "The Kokoro voice is selected but its package is not installed.\n"
+                "  Install it with:  ./setup.sh --with-kokoro\n"
+                "  Or switch back to the Piper voice:  --tts piper\n"
+                "Finished stages are cached, so re-running resumes from here."
+            ) from exc
 
         hf_cache_dir(models_dir)
         LOG.info("Loading Kokoro (voice=%s) on %s", voice, device)

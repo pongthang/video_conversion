@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
 
@@ -167,36 +167,41 @@ class ConversionWorker(QObject):
             self.failed.emit(f"The conversion process exited with code {exit_code}.")
 
 
-class DownloadWorker(QObject):
-    """Fetches missing models before a conversion starts.
+class PreflightWorker(QObject):
+    """Runs the setup steps a conversion needs, in order, before it starts.
 
-    Separate from ConversionWorker because it runs a different command and has
-    no meaningful percentage to report: huggingface_hub writes its own progress
-    to stderr in a form that is not worth parsing. The UI shows an indeterminate
-    bar and the log lines instead, which is honest about what is known.
+    Two kinds of step: pip-installing an optional backend, and downloading
+    models. Both are sequential subprocesses whose progress is not usefully
+    quantifiable - huggingface_hub and pip each write their own progress in
+    forms not worth parsing - so the UI shows an indeterminate bar and the log,
+    which is honest about what is known.
+
+    A single worker rather than one per kind, because the steps have to happen
+    in order: installing Kokoro and then downloading its model is two commands,
+    and the second is pointless if the first failed.
     """
 
     logged = Signal(str, str)
+    step = Signal(str)               # human-readable description of the step
     finished = Signal(bool, str)     # ok, message
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._proc: Optional[QProcess] = None
+        self._steps: List[Tuple[str, List[str]]] = []
+        self._index = 0
         self._tail: List[str] = []
+        self._cancelled = False
 
-    def start(self, download_args: List[str]) -> None:
-        proc = QProcess(self)
-        proc.setProcessChannelMode(QProcess.MergedChannels)
-        proc.setProcessEnvironment(_source_environment())
-        proc.readyReadStandardOutput.connect(self._read)
-        proc.finished.connect(self._on_finished)
-        proc.errorOccurred.connect(
-            lambda _e: self.finished.emit(False, "Could not start the downloader."))
-        self._proc = proc
-        self._tail = []
-        proc.start(sys.executable, ["-m", "vtrans.download"] + download_args)
+    def start(self, steps: List[Tuple[str, List[str]]]) -> None:
+        """steps: [(description, argv-after-the-interpreter), ...]"""
+        self._steps = list(steps)
+        self._index = 0
+        self._cancelled = False
+        self._run_next()
 
     def cancel(self) -> None:
+        self._cancelled = True
         if self._proc and self._proc.state() != QProcess.NotRunning:
             self._proc.kill()
 
@@ -204,21 +209,55 @@ class DownloadWorker(QObject):
     def running(self) -> bool:
         return bool(self._proc and self._proc.state() != QProcess.NotRunning)
 
+    # ------------------------------------------------------------ internals
+
+    def _run_next(self) -> None:
+        if self._cancelled:
+            return
+        if self._index >= len(self._steps):
+            self.finished.emit(True, "")
+            return
+
+        description, args = self._steps[self._index]
+        self.step.emit(description)
+        self.logged.emit(description, "info")
+
+        proc = QProcess(self)
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        proc.setProcessEnvironment(_source_environment())
+        proc.readyReadStandardOutput.connect(self._read)
+        proc.finished.connect(self._on_step_finished)
+        proc.errorOccurred.connect(
+            lambda _e: self.finished.emit(False, "Could not start the setup step."))
+        self._proc = proc
+        self._tail = []
+        proc.start(sys.executable, args)
+
     def _read(self) -> None:
         if not self._proc:
             return
         text = bytes(self._proc.readAllStandardOutput()).decode("utf-8", "replace")
         for line in text.splitlines():
-            if line.strip():
-                self._tail.append(line.rstrip())
-                del self._tail[:-40]
-                self.logged.emit(line.rstrip(), "info")
+            if not line.strip():
+                continue
+            self._tail.append(line.rstrip())
+            del self._tail[:-40]
+            # pip is extremely chatty; only the lines that show movement are
+            # worth putting in front of someone waiting.
+            if line.startswith(("Collecting", "Downloading", "Installing",
+                                "Successfully", "  ", "Models directory",
+                                "Whisper", "Hugging Face")):
+                self.logged.emit(line.rstrip()[:130], "info")
 
-    def _on_finished(self, exit_code: int, _status: QProcess.ExitStatus) -> None:
+    def _on_step_finished(self, exit_code: int, _status: QProcess.ExitStatus) -> None:
         self._read()
-        if exit_code == 0:
-            self.finished.emit(True, "")
-        else:
+        if self._cancelled:
+            return
+        if exit_code != 0:
+            description = self._steps[self._index][0]
             self.finished.emit(
                 False,
-                "Downloading the models failed.\n\n" + "\n".join(self._tail[-8:]))
+                f"{description} failed.\n\n" + "\n".join(self._tail[-10:]))
+            return
+        self._index += 1
+        self._run_next()

@@ -21,7 +21,8 @@ from vtrans.utils import fmt_duration
 
 from vtrans.config import Config
 
-from .assets import missing_for, summarise
+from .assets import (missing_for, missing_packages, summarise,
+                     system_tool_missing)
 from .catalog import (ASR_MODELS, PRESETS, TRANSLATE_MODELS, TTS_MODELS,
                       default_voice, find_option, preset_requirements,
                       voices_for)
@@ -29,7 +30,7 @@ from .hardware import Hardware, detect
 from .previewpane import PreviewPane
 from .settings import Settings
 from .widgets import Badge, Card, Collapsible, hline, row
-from .worker import ConversionWorker, DownloadWorker
+from .worker import ConversionWorker, PreflightWorker
 
 VIDEO_FILTER = ("Video files (*.mp4 *.mkv *.mov *.avi *.webm *.flv *.wmv *.m4v *.ts);;"
                 "All files (*)")
@@ -52,7 +53,7 @@ class MainWindow(QWidget):
         # still at its constructed minimum.
         self._restoring = True
         self.worker: Optional[ConversionWorker] = None
-        self.downloader: Optional[DownloadWorker] = None
+        self.preflight: Optional[PreflightWorker] = None
         self.source: Optional[str] = None
         self.started_at: float = 0.0
         self.models_dir = Config.load().resolve_dir("general.models_dir")
@@ -336,7 +337,7 @@ class MainWindow(QWidget):
         self.start_button.clicked.connect(self._start)
         self.start_button.setEnabled(False)
 
-        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button = QPushButton("Abort")
         self.cancel_button.setObjectName("danger")
         self.cancel_button.clicked.connect(self._cancel)
         self.cancel_button.setVisible(False)
@@ -699,44 +700,77 @@ class MainWindow(QWidget):
             asr_size_mb=(option.disk_gb * 1024) if option else 0.0,
         )
 
+    def _preflight_steps(self):
+        """Everything that has to happen before the conversion can start.
+
+        Ordered: packages first, then models. Installing Kokoro and then
+        fetching its weights is two steps, and the second is pointless if the
+        first failed.
+        """
+        steps = []
+        packages = missing_packages(
+            tts_backend=self.tts_combo.currentData() or "piper",
+            separate=bool(self.settings.keep_background),
+        )
+        for package in packages:
+            steps.append((f"Installing {package.label}...",
+                          ["-m", "pip", "install", "--no-input",
+                           "--disable-pip-version-check"] + package.install_args))
+
+        assets = self._missing_assets()
+        if assets:
+            args = []
+            for item in assets:
+                args += item.download_args
+            steps.append((f"Downloading {summarise(assets)}...",
+                          ["-m", "vtrans.download"] + args))
+        return steps, packages, assets
+
     def _start(self) -> None:
         if not self.source:
             return
 
-        # Anything missing is fetched first. Discovering it at the stage that
-        # needs it means failing after the user has already waited through
-        # transcription, which is the worst possible moment.
-        missing = self._missing_assets()
-        if missing:
+        # Anything missing is installed or fetched first. Discovering it at the
+        # stage that needs it means failing after the user has already waited
+        # through transcription, which is the worst possible moment - and is
+        # exactly what happened with the Kokoro backend, which is offered in
+        # the list but is not part of the default install.
+        steps, packages, assets = self._preflight_steps()
+
+        for package in packages:
+            hint = system_tool_missing(package.key)
+            if hint:
+                self._on_log(
+                    f"{package.label} works best with a system package that is "
+                    f"not installed. Unusual words may be mispronounced. "
+                    f"To add it: {hint}", "warning")
+
+        if steps:
             self.log_view.clear()
             self._set_running(True)
-            self.stage_label.setText("Downloading models...")
             self.overall_bar.setRange(0, 0)     # indeterminate
             self.started_at = time.time()
-            self._on_log("First run with these settings. Downloading "
-                         + summarise(missing) + ".", "info")
+            self._on_log("First run with these settings - preparing.", "info")
 
-            args: list[str] = []
-            for item in missing:
-                args += item.download_args
-            self.downloader = DownloadWorker(self)
-            self.downloader.logged.connect(self._on_log)
-            self.downloader.finished.connect(self._on_download_finished)
-            self.downloader.start(args)
+            self.preflight = PreflightWorker(self)
+            self.preflight.logged.connect(self._on_log)
+            self.preflight.step.connect(self.stage_label.setText)
+            self.preflight.finished.connect(self._on_preflight_finished)
+            self.preflight.start(steps)
             return
 
         self.log_view.clear()
         self._begin_conversion()
 
-    def _on_download_finished(self, ok: bool, message: str) -> None:
+    def _on_preflight_finished(self, ok: bool, message: str) -> None:
         self.overall_bar.setRange(0, 1000)
         if not ok:
             self._set_running(False)
-            self.stage_label.setText("Download failed")
+            self.stage_label.setText("Setup failed")
             self._on_log(message, "error")
-            QMessageBox.critical(self, "Could not download models", message)
+            QMessageBox.critical(self, "Could not prepare the conversion", message)
             return
-        self._on_log("Models ready.", "info")
+        self._on_log("Ready.", "info")
         self._begin_conversion()
 
     def _begin_conversion(self) -> None:
@@ -768,22 +802,45 @@ class MainWindow(QWidget):
         self.last_output = out_path
 
     def _cancel(self) -> None:
-        if self.downloader and self.downloader.running:
-            self.downloader.cancel()
+        """Abort the current run, after confirming.
+
+        Worth a confirmation: the button sits where Start was, and a long
+        conversion represents real time already spent. The prompt says what is
+        kept, because finished stages are cached and a restart resumes from
+        them rather than beginning again.
+        """
+        if self.preflight and self.preflight.running:
+            question = ("Stop preparing?\n\n"
+                        "Downloads already finished are kept.")
+        else:
+            question = ("Abort this conversion?\n\n"
+                        "Steps that have already finished are kept, so starting "
+                        "the same video again resumes from where it stopped "
+                        "rather than from the beginning.")
+
+        answer = QMessageBox.question(
+            self, "Abort conversion", question,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
+
+        if self.preflight and self.preflight.running:
+            self.preflight.cancel()
             self.overall_bar.setRange(0, 1000)
             self._set_running(False)
             self.stage_label.setText("Cancelled")
+            self._on_log("Preparation cancelled.", "warning")
             return
         if self.worker:
             self.cancel_button.setEnabled(False)
-            self.cancel_button.setText("Stopping...")
+            self.cancel_button.setText("Aborting...")
             self.worker.cancel()
 
     def _set_running(self, running: bool) -> None:
         self.start_button.setVisible(not running)
         self.cancel_button.setVisible(running)
         self.cancel_button.setEnabled(running)
-        self.cancel_button.setText("Cancel")
+        self.cancel_button.setText("Abort")
         self.open_button.setVisible(False)
         for widget in (self.preset_combo, self.asr_combo, self.mt_combo, self.tts_combo,
                        self.voice_combo, self.female_radio, self.male_radio,
