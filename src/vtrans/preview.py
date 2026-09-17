@@ -11,8 +11,8 @@ different font metrics, different outline geometry and different line breaking,
 which is exactly the detail someone is trying to judge here.
 
 Scale is preserved too. The ASS header pins PlayResY to 288 and libass scales
-that to the frame height, so a font size is a fraction of picture height (22 is
-about 7.6%) no matter the resolution. Rendering the preview at 720 px wide
+that to the frame height, so a font size is a fraction of picture height (18 is
+about 6%) no matter the resolution. Rendering the preview at 720 px wide
 therefore looks proportionally identical to the 4K burn.
 """
 from __future__ import annotations
@@ -49,8 +49,8 @@ def _pick_frame_time(video: Path, fallback: float = 5.0) -> float:
 
 
 def render_preview(video: Path, out_png: Path, *, font: str = "DejaVu Sans",
-                   font_size: int = 22, outline: int = 2, shadow: int = 0,
-                   margin_v: int = 28, max_line_chars: int = 42, max_lines: int = 2,
+                   font_size: int = 18, outline: int = 2, shadow: int = 0,
+                   margin_v: int = 28, max_line_chars: int = 48, max_lines: int = 2,
                    text: Optional[Sequence[str]] = None,
                    width: int = 854, at_seconds: Optional[float] = None) -> Path:
     """Burn sample captions onto one frame of `video` and write it as a PNG.
@@ -89,9 +89,9 @@ def render_preview(video: Path, out_png: Path, *, font: str = "DejaVu Sans",
     return out_png
 
 
-def render_placeholder(out_png: Path, *, font: str = "DejaVu Sans", font_size: int = 22,
+def render_placeholder(out_png: Path, *, font: str = "DejaVu Sans", font_size: int = 18,
                        outline: int = 2, shadow: int = 0, margin_v: int = 28,
-                       max_line_chars: int = 42, max_lines: int = 2,
+                       max_line_chars: int = 48, max_lines: int = 2,
                        text: Optional[Sequence[str]] = None,
                        width: int = 854, height: int = 480) -> Path:
     """Same preview against a neutral grey card, for when no video is loaded yet."""
