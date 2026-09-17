@@ -13,7 +13,13 @@ sacremoses>=0.1.1           # tokenizer for the opus-mt backend
 protobuf>=4.25,<6
 
 # --- Speech synthesis ------------------------------------------------------
-piper-tts==1.2.0
+# 1.4.2 dropped the piper-phonemize dependency and compiles phonemisation into
+# its own wheel, which is what makes Windows possible: piper-phonemize only
+# ever published linux and macos wheels, so piper-tts 1.2.0 cannot be installed
+# on Windows at all. The newer package also bundles espeak-ng-data, so no
+# system espeak is needed for Piper. tts.PiperEngine detects the API at load
+# time and drives either flavour.
+piper-tts==1.8.0
 onnxruntime>=1.17,<2
 
 # --- Media / IO ------------------------------------------------------------
