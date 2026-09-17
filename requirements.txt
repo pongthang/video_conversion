@@ -4,7 +4,14 @@
 
 # --- ASR -------------------------------------------------------------------
 faster-whisper==1.1.1
-ctranslate2==4.5.0          # 4.5.x expects cuDNN 9, which torch cu121 provides
+# 4.7.2, not 4.5.0: ctranslate2's Windows-only start-up code imported
+# pkg_resources to locate its DLL directory, and setuptools 81 removed
+# pkg_resources, so 4.5.0 fails on Windows with "No module named
+# 'pkg_resources'" the moment faster-whisper is imported. 4.7.2 switched that
+# lookup to importlib.resources. Linux never ran the branch, which is why the
+# older pin worked there. Verified on a GTX 1650 that 4.7.2 still runs against
+# the cuDNN 9 shipped by the torch cu121 wheels.
+ctranslate2==4.7.2
 
 # --- Translation -----------------------------------------------------------
 transformers==4.46.3
