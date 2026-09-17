@@ -1,0 +1,47 @@
+# --- Python -----------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# --- Downloaded models and per-job scratch ----------------------------------
+# Both are recreated by setup.sh / the installer; together they are >6 GB.
+models/
+work/
+
+# --- Media: inputs and generated outputs ------------------------------------
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.wav
+*.mp3
+*.m4a
+*.srt
+*.ass
+*.vtt
+
+# --- Logs and local state ---------------------------------------------------
+*.log
+setup.log
+
+# --- Windows packaging artefacts --------------------------------------------
+# runtime/ is the downloaded standalone CPython, Output/ is Inno Setup's.
+windows/runtime/
+windows/build/
+windows/dist/
+windows/Output/
+windows/vendor/
+*.exe
+
+# --- Editors / OS -----------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vtrans"
+version = "1.0.0"
+description = "Chinese video to English dubbed + subtitled video, using open-source models"
+requires-python = ">=3.9"
+dynamic = ["dependencies"]
+
+[project.scripts]
+vtrans = "vtrans.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}

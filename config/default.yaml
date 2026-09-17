@@ -1,0 +1,127 @@
+# Default configuration for the Chinese -> English video dubbing pipeline.
+# Every key can be overridden on the command line (see ./convert_video.sh --help)
+# or by passing your own YAML with --config myconfig.yaml (merged on top of this).
+
+general:
+  # Working/intermediate directory. Each job gets work_dir/<job-id>/
+  work_dir: work
+  # Where models are downloaded to (keeps everything inside the project).
+  models_dir: models
+  # cuda | cpu | auto
+  device: auto
+  # Keep intermediate files after a successful run (useful for debugging).
+  keep_work: true
+
+source:
+  # Split long audio into chunks before ASR. 0 disables chunking.
+  # Split points are snapped to the nearest silence so words are never cut.
+  chunk_minutes: 20
+  # Audio sample rate used internally for ASR (whisper wants 16k).
+  asr_sample_rate: 16000
+  # Sample rate of the produced English track.
+  out_sample_rate: 48000
+
+separate:
+  # Run Demucs to split vocals from music/effects so the original background
+  # can be kept underneath the English dub. Big quality win, costs time.
+  enabled: false
+  model: htdemucs
+  # Level (dB) applied to the instrumental bed when mixing under the dub.
+  background_gain_db: -3.0
+  # Demucs is heavy; on a 4 GB GPU this keeps it from OOMing.
+  segment: 7
+
+asr:
+  # tiny|base|small|medium|large-v2|large-v3|distil-large-v3 or a local path
+  model: large-v3
+  language: zh
+  # auto -> int8_float16 on small GPUs, float16 on big ones, int8 on CPU
+  compute_type: auto
+  beam_size: 5
+  # Silero VAD removes silence before transcription: faster and far fewer
+  # hallucinated captions during music-only passages.
+  vad_filter: true
+  vad_min_silence_ms: 400
+  condition_on_previous_text: false
+  word_timestamps: true
+  initial_prompt: "以下是普通话的句子。"
+
+segment:
+  # Sentence assembly: ASR segments are re-cut on Chinese sentence punctuation.
+  max_chars: 40
+  max_duration: 8.0
+  # Units shorter than this are glued onto a neighbour instead of standing alone.
+  min_duration: 0.7
+  # Merge a fragment into the previous one if the gap is smaller than this.
+  merge_gap: 0.35
+  # Minimum length before a whitespace boundary inside an ASR segment counts.
+  min_break_chars: 4
+
+translate:
+  # nllb | opus | none  (none = keep Chinese, useful for testing timing)
+  backend: nllb
+  model: facebook/nllb-200-distilled-600M
+  src_lang: zho_Hans
+  tgt_lang: eng_Latn
+  batch_size: 8
+  num_beams: 4
+  max_new_tokens: 256
+  # Optional post-translation term fixes, e.g. {"人工智能": "AI"} applied as
+  # English replacements after MT. Point --glossary at a JSON file to extend.
+  glossary: {}
+
+tts:
+  # piper | kokoro
+  backend: piper
+  # Piper voice name (downloaded by setup.sh into models/piper/)
+  voice: en_US-lessac-medium
+  # Kokoro voice, only used when backend: kokoro
+  kokoro_voice: af_heart
+  # Base speaking rate. Piper length_scale: >1 slower, <1 faster.
+  length_scale: 1.0
+  noise_scale: 0.667
+  noise_w: 0.8
+  sentence_silence: 0.1
+
+sync:
+  # How much a line may be sped up to fit its slot (1.0 = never speed up).
+  max_speedup: 1.45
+  # Lowest length_scale Piper is allowed to synthesize at before we fall back
+  # to time-stretching the rendered audio.
+  min_length_scale: 0.78
+  # Fraction of the silent gap after a line that the line may spill into.
+  gap_usage: 0.9
+  # Allow a line to overlap the next one when even max_speedup is not enough.
+  allow_overlap: true
+  # Fade applied to each rendered clip to avoid clicks (seconds).
+  fade: 0.012
+  # Loudness target for the English dub (EBU R128 LUFS).
+  loudness_lufs: -16.0
+
+subtitles:
+  # burn | soft | both | none
+  # "both" burns the captions in and, for .mkv output, also carries a
+  # switched-off subtitle track. MP4/MOV always auto-enable an embedded track,
+  # so there the track is omitted to avoid the text being drawn twice; the
+  # .srt files are written to the work directory either way.
+  mode: both
+  font: DejaVu Sans
+  font_size: 22
+  # Outline/shadow make captions readable over any background.
+  outline: 2
+  shadow: 0
+  margin_v: 28
+  # Wrap captions at this many characters, max 2 lines.
+  max_line_chars: 42
+  max_lines: 2
+  # Also write a Chinese .srt next to the English one.
+  keep_source_srt: true
+
+output:
+  # libx264 | h264_nvenc | copy  ("copy" is only possible when not burning subs)
+  video_codec: auto
+  crf: 20
+  preset: medium
+  audio_bitrate: 192k
+  # Keep the original Chinese audio as a second track in the output file.
+  keep_original_audio: true

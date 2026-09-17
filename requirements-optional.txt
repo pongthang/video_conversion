@@ -1,0 +1,9 @@
+# Installed by:  ./setup.sh --with-demucs --with-kokoro
+
+# Vocal/instrumental separation, so the original music survives the dub.
+demucs==4.0.1
+
+# Higher quality (and heavier) TTS voice. Needs espeak-ng on the system for
+# out-of-vocabulary words:  sudo apt install espeak-ng
+kokoro>=0.9.2
+misaki[en]>=0.9.3

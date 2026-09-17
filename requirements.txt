@@ -1,0 +1,24 @@
+# Core pipeline dependencies.
+# PyTorch is installed separately by setup.sh so the right CUDA/CPU wheel is
+# picked for the machine.
+
+# --- ASR -------------------------------------------------------------------
+faster-whisper==1.1.1
+ctranslate2==4.5.0          # 4.5.x expects cuDNN 9, which torch cu121 provides
+
+# --- Translation -----------------------------------------------------------
+transformers==4.46.3
+sentencepiece>=0.2.0
+sacremoses>=0.1.1           # tokenizer for the opus-mt backend
+protobuf>=4.25,<6
+
+# --- Speech synthesis ------------------------------------------------------
+piper-tts==1.2.0
+onnxruntime>=1.17,<2
+
+# --- Media / IO ------------------------------------------------------------
+soundfile>=0.12.1
+numpy>=1.24,<2
+PyYAML>=6.0
+huggingface-hub>=0.23,<1
+yt-dlp>=2024.8.6
