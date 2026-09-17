@@ -41,7 +41,7 @@ class MainWindow(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Miko Video Translator - Chinese to English")
+        self.setWindowTitle("Video Translator - Chinese to English")
         self.setMinimumSize(1120, 760)
         self.setAcceptDrops(True)
 

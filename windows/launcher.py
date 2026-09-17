@@ -30,17 +30,17 @@ def main() -> int:
         from vtrans_gui.app import main as gui_main
     except ImportError as exc:
         _fatal(
-            "Miko Video Translator",
+            "Video Translator",
             "The application's components are not installed correctly.\n\n"
             f"{exc}\n\n"
-            "Run 'Repair Miko Video Translator' from the Start menu to restore them.",
+            "Run 'Repair Video Translator' from the Start menu to restore them.",
         )
         return 1
 
     try:
         return gui_main()
     except Exception:  # noqa: BLE001 - last resort, there is no console
-        _fatal("Miko Video Translator - unexpected error",
+        _fatal("Video Translator - unexpected error",
                "The application stopped unexpectedly.\n\n" + traceback.format_exc()[-1500:])
         return 1
 

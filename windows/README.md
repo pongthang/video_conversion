@@ -143,7 +143,7 @@ powershell -ExecutionPolicy Bypass -File windows\build.ps1
 Takes about two minutes, mostly the ~25 MB CPython download. The result is:
 
 ```
-windows\Output\MikoVideoTranslator-1.0.0-Setup.exe     (~120 MB)
+windows\Output\VideoTranslator-1.0.0-Setup.exe     (~120 MB)
 ```
 
 Useful switches:
@@ -162,7 +162,7 @@ what their machine can use. Instead it ships the app and a private CPython,
 then fetches exactly what that machine needs:
 
 1. Two wizard pages: **model tier** (Fast / Balanced / Best) and **GPU or CPU**
-2. Installs to `%ProgramFiles%\MikoVideoTranslator` (or per-user, no admin needed)
+2. Installs to `%ProgramFiles%\VideoTranslator` (or per-user, no admin needed)
 3. Runs `bootstrap.py`, which:
    - installs the CUDA or CPU build of PyTorch, chosen by probing `nvidia-smi`
    - downloads a **static ffmpeg** into `bin\` — nothing is installed
@@ -172,7 +172,7 @@ then fetches exactly what that machine needs:
    - verifies every import and reports `CUDA: True/False`
 4. Creates Start-menu and optional desktop shortcuts
 
-Every step is skipped when already satisfied, so **Repair Miko Video
+Every step is skipped when already satisfied, so **Repair Video
 Translator** in the Start menu is a safe, cheap way to restore a broken install.
 
 The uninstaller removes `models\`, `work\`, `bin\` and the installed packages,

@@ -14,7 +14,7 @@ from typing import Any, Dict
 
 LOG = logging.getLogger("vtrans")
 
-APP_NAME = "MikoVideoTranslator"
+APP_NAME = "VideoTranslator"
 
 
 def config_dir() -> Path:

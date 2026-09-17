@@ -9,7 +9,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_ID="miko-video-translator"
+APP_ID="video-translator"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 DESKTOP_FILE="$DESKTOP_DIR/$APP_ID.desktop"
@@ -29,6 +29,13 @@ fi
 
 [[ -x "$PROJECT_DIR/run_gui.sh" ]] || { echo "run_gui.sh missing" >&2; exit 1; }
 
+# The application used to be called "Miko Video Translator". Clear the old
+# entry so the menu does not end up listing it twice under two names.
+for legacy in miko-video-translator; do
+  rm -f "$DESKTOP_DIR/$legacy.desktop" \
+        "$HOME/.local/share/icons/hicolor/256x256/apps/$legacy.png" 2>/dev/null || true
+done
+
 info "Installing the menu entry for $USER"
 mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
 
@@ -45,7 +52,7 @@ cat > "$DESKTOP_FILE" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Miko Video Translator
+Name=Video Translator
 GenericName=Video Dubbing
 Comment=Turn Chinese video into English-dubbed, English-subtitled video
 Exec=$PROJECT_DIR/run_gui.sh
@@ -70,7 +77,7 @@ cat <<DONE
 
 ${GREEN}${BOLD}Installed.${OFF}
 
-  Look for "Miko Video Translator" in the applications menu,
+  Look for "Video Translator" in the applications menu,
   or start it directly with:
 
     ./run_gui.sh

@@ -7,7 +7,7 @@ actually use. Instead the installer ships the app, a standalone CPython and
 this script, which works out what the machine needs and fetches only that.
 
 Run by the installer with a progress window, and again from the Start menu
-entry "Repair Miko Video Translator" if anything needs restoring. Every step is
+entry "Repair Video Translator" if anything needs restoring. Every step is
 skipped when already satisfied, so re-running is cheap and safe.
 """
 from __future__ import annotations
@@ -227,7 +227,7 @@ def verify(reporter: Reporter) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Miko Video Translator setup")
+    parser = argparse.ArgumentParser(description="Video Translator setup")
     parser.add_argument("--preset", default="balanced",
                         choices=sorted(PRESET_MODELS), help="which models to fetch")
     parser.add_argument("--cpu-only", action="store_true",

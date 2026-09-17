@@ -17,7 +17,7 @@ die() {
   # Started from a menu there is no terminal to read, so say it in a dialog too.
   printf '\033[31mError:\033[0m %s\n' "$1" >&2
   if command -v zenity >/dev/null 2>&1; then
-    zenity --error --no-wrap --title="Miko Video Translator" --text="$1" 2>/dev/null || true
+    zenity --error --no-wrap --title="Video Translator" --text="$1" 2>/dev/null || true
   elif command -v kdialog >/dev/null 2>&1; then
     kdialog --error "$1" 2>/dev/null || true
   fi

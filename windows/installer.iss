@@ -1,15 +1,15 @@
-; Inno Setup script for Miko Video Translator.
+; Inno Setup script for Video Translator.
 ; Build with:  iscc windows\installer.iss   (or run windows\build.ps1)
 ;
 ; The installer is intentionally small. It ships the application, a standalone
 ; CPython and the bootstrap script; PyTorch, ffmpeg and the models are fetched
 ; during installation, sized to the machine and to the tier the user picks.
 
-#define AppName        "Miko Video Translator"
-#define AppShortName   "MikoVideoTranslator"
+#define AppName        "Video Translator"
+#define AppShortName   "VideoTranslator"
 #define AppVersion     "1.0.0"
-#define AppPublisher   "Miko"
-#define AppExeName     "MikoVideoTranslator.exe"
+#define AppPublisher   "Video Translator"
+#define AppExeName     "VideoTranslator.exe"
 
 [Setup]
 AppId={{8E2A6C41-7B3D-4F58-9A12-5C7E0D4B9F31}

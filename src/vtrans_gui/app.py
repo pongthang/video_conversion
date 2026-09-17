@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(APP_NAME)
-    app.setApplicationDisplayName("Miko Video Translator")
+    app.setApplicationDisplayName("Video Translator")
     app.setStyleSheet(STYLESHEET)
 
     icon_path = Path(__file__).resolve().parent / "assets" / "app.ico"

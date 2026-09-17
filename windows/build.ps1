@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Builds the Miko Video Translator installer. Run this on Windows.
+    Builds the Video Translator installer. Run this on Windows.
 
 .DESCRIPTION
     Downloads a standalone CPython, stages it into windows\runtime, then calls
-    the Inno Setup compiler to produce windows\Output\MikoVideoTranslator-1.0.0-Setup.exe.
+    the Inno Setup compiler to produce windows\Output\VideoTranslator-1.0.0-Setup.exe.
 
     A standalone CPython is used rather than the official "embeddable" zip
     because the embeddable build omits tkinter, ensurepip and the full standard
