@@ -84,6 +84,38 @@ no console.
 
 **A model download stopped partway** — re-run `setup.ps1`; it resumes.
 
+**`faster-whisper: DLL load failed ... An Application Control policy has blocked
+this file`** — Windows **Smart App Control** is blocking CTranslate2, the engine
+behind faster-whisper. It ships unsigned compiled DLLs, and Smart App Control
+blocks binaries it has neither a signature nor a reputation for. PyTorch passes
+the same check because it is common enough to be known, which is why the
+verification reports `cuda=True` and then fails only on this one import.
+
+Check what is enforcing it:
+
+```powershell
+Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name VerifiedAndReputablePolicyState
+```
+
+`1` is Smart App Control enforcing, `2` evaluation mode, `0` off. If the key is
+absent, an enterprise WDAC policy is responsible and your administrator has to
+make the exception.
+
+There is no way to allowlist a single file under consumer Smart App Control, so
+the options are:
+
+- **Turn Smart App Control off** — Windows Security → App & browser control →
+  Smart App Control settings → Off, then restart. Fastest, and keeps
+  faster-whisper's speed and low VRAM use. **Microsoft does not allow Smart App
+  Control to be switched back on afterwards without reinstalling Windows**, so
+  treat it as permanent.
+- **Use a machine without it.** Smart App Control only ever activates on clean
+  installs of Windows 11; an upgraded machine will not have it.
+
+Nothing needs reinstalling afterwards: the DLL is already on disk, it was only
+prevented from loading. Re-run `setup.ps1` and it continues from the
+verification step.
+
 ---
 
 # Build the installer
