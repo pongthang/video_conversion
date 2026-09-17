@@ -28,7 +28,7 @@ class Cue:
     text: str
 
 
-def wrap_text(text: str, max_chars: int = 42, max_lines: int = 2) -> str:
+def wrap_text(text: str, max_chars: int = 48, max_lines: int = 2) -> str:
     text = " ".join(text.split())
     if len(text) <= max_chars:
         return text
@@ -43,7 +43,7 @@ def wrap_text(text: str, max_chars: int = 42, max_lines: int = 2) -> str:
 
 
 def build_cues(sentences: List[Sentence], clips: Optional[List[Clip]] = None, *,
-               use_target: bool = True, max_line_chars: int = 42,
+               use_target: bool = True, max_line_chars: int = 48,
                max_lines: int = 2, total_duration: float | None = None) -> List[Cue]:
     clip_by_index = {c.index: c for c in (clips or [])}
     cues: List[Cue] = []
@@ -121,7 +121,7 @@ def _ass_escape(text: str) -> str:
                 .replace("\n", "\\N"))
 
 
-def write_ass(cues: List[Cue], path: Path, *, font: str = "DejaVu Sans", size: int = 22,
+def write_ass(cues: List[Cue], path: Path, *, font: str = "DejaVu Sans", size: int = 18,
               outline: int = 2, shadow: int = 0, margin_v: int = 28,
               play_res: tuple[int, int] = (384, 288)) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -66,6 +66,18 @@ def torch_dtype(dev: DeviceInfo):
     return torch.float16 if dev.is_cuda else torch.float32
 
 
+def free_vram_gb(dev: DeviceInfo) -> float:
+    """VRAM currently free on the device, in GB (0.0 on CPU)."""
+    if not dev.is_cuda:
+        return 0.0
+    try:
+        import torch
+        free_bytes, _total = torch.cuda.mem_get_info(dev.index)
+        return free_bytes / (1024 ** 3)
+    except Exception:  # pragma: no cover - driver quirks
+        return dev.total_vram_gb
+
+
 def free_memory() -> None:
     """Release model memory between stages."""
     gc.collect()

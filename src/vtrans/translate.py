@@ -14,18 +14,27 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
-from .device import DeviceInfo, free_memory, torch_dtype
+from .device import DeviceInfo, free_memory, free_vram_gb, torch_dtype
 from .segment import Sentence
 from .utils import chunked, hf_cache_dir
 
 LOG = logging.getLogger("vtrans")
 
 BACKEND_DEFAULT_MODELS = {
-    "nllb": "facebook/nllb-200-distilled-600M",
+    "nllb": "auto",
     "opus": "Helsinki-NLP/opus-mt-zh-en",
 }
+
+# Largest first. The pipeline loads exactly one model at a time and frees it
+# before the next stage, so the whole card is available here - measured on a
+# 4 GB GTX 1650: Whisper large-v3 peaks at 1.9 GB and is fully released before
+# translation starts. min_free_gb includes room for beam-search activations.
+NLLB_TIERS = [
+    ("facebook/nllb-200-distilled-1.3B", 3.4, 4),
+    ("facebook/nllb-200-distilled-600M", 1.6, 8),
+]
 
 
 def _collapse_repeats(text: str) -> str:
@@ -74,6 +83,79 @@ def apply_glossary(text: str, glossary: Dict[str, str]) -> str:
     for src, dst in glossary.items():
         text = re.sub(rf"\b{re.escape(src)}\b", dst, text, flags=re.IGNORECASE)
     return text
+
+
+WEIGHT_SUFFIXES = (".safetensors", ".bin")
+
+
+def _is_cached(repo_id: str, models_dir: Path) -> bool:
+    """True only if the *weights* are fully downloaded.
+
+    Checking that the snapshot directory merely exists is not enough: the small
+    config and tokenizer files arrive first, so a partially downloaded model
+    looks complete for the several minutes its multi-GB weights are still in
+    flight. Selecting it then would stall the run on the very download this
+    check is meant to avoid.
+    """
+    cache = Path(hf_cache_dir(models_dir))
+    folder = cache / ("models--" + repo_id.replace("/", "--"))
+    if not folder.is_dir():
+        return False
+
+    # A blob still being fetched leaves a .incomplete file behind.
+    blobs = folder / "blobs"
+    if blobs.is_dir() and any(blobs.glob("*.incomplete")):
+        return False
+
+    snapshots = folder / "snapshots"
+    if not snapshots.is_dir():
+        return False
+    for rev in snapshots.iterdir():
+        if not rev.is_dir():
+            continue
+        for entry in rev.iterdir():
+            if not entry.name.endswith(WEIGHT_SUFFIXES):
+                continue
+            try:
+                # resolve() follows the symlink into blobs/; a missing target
+                # or a stub-sized file means the download never completed.
+                if entry.resolve().stat().st_size > 1_000_000:
+                    return True
+            except OSError:
+                continue
+    return False
+
+
+def select_nllb_model(dev: DeviceInfo, models_dir: Path) -> Tuple[str, Optional[int]]:
+    """Pick the largest NLLB that fits free VRAM and is already downloaded.
+
+    Returns (model_name, suggested_batch_size). A bigger model is a much larger
+    quality win than any decoding tweak, so it is worth spending spare VRAM on -
+    but only when it is already on disk, so a run never stalls on a multi-GB
+    download it did not ask for.
+    """
+    free = free_vram_gb(dev) if dev.is_cuda else 0.0
+    smallest = NLLB_TIERS[-1]
+
+    if not dev.is_cuda:
+        LOG.info("Translating on CPU with %s", smallest[0])
+        return smallest[0], smallest[2]
+
+    for name, need, batch in NLLB_TIERS:
+        if free < need:
+            continue
+        if not _is_cached(name, models_dir):
+            if name != smallest[0]:
+                LOG.info("%.1f GB VRAM free would fit %s, but it is not downloaded. "
+                         "Fetch it once with:  python -m vtrans.download "
+                         "--translate-model %s", free, name, name)
+            continue
+        if name != smallest[0]:
+            LOG.info("%.1f GB VRAM free - using the larger %s for better quality",
+                     free, name)
+        return name, batch
+
+    return smallest[0], smallest[2]
 
 
 class Translator:
@@ -169,13 +251,31 @@ def translate_sentences(sentences: List[Sentence], cfg, dev: DeviceInfo, models_
         return sentences
 
     model_name = cfg.get("translate.model") or BACKEND_DEFAULT_MODELS[backend]
-    tr = Translator(
-        backend=backend, model_name=model_name, dev=dev, models_dir=models_dir,
-        src_lang=cfg.get("translate.src_lang", "zho_Hans"),
-        tgt_lang=cfg.get("translate.tgt_lang", "eng_Latn"),
-    )
+    suggested_batch = None
+    if backend == "nllb" and model_name in ("auto", "", None):
+        model_name, suggested_batch = select_nllb_model(dev, models_dir)
 
-    batch_size = int(cfg.get("translate.batch_size", 8))
+    def _load(name: str) -> Translator:
+        return Translator(
+            backend=backend, model_name=name, dev=dev, models_dir=models_dir,
+            src_lang=cfg.get("translate.src_lang", "zho_Hans"),
+            tgt_lang=cfg.get("translate.tgt_lang", "eng_Latn"),
+        )
+
+    try:
+        tr = _load(model_name)
+    except (RuntimeError, MemoryError) as exc:
+        fallback = NLLB_TIERS[-1][0]
+        if backend != "nllb" or model_name == fallback or "out of memory" not in str(exc).lower():
+            raise
+        LOG.warning("%s did not fit in VRAM (%s); falling back to %s",
+                    model_name, str(exc)[:60], fallback)
+        free_memory()
+        model_name, suggested_batch = fallback, NLLB_TIERS[-1][2]
+        tr = _load(model_name)
+
+    # A larger model needs a smaller batch to leave room for beam-search state.
+    batch_size = int(suggested_batch or cfg.get("translate.batch_size", 8))
     num_beams = int(cfg.get("translate.num_beams", 4))
     max_new_tokens = int(cfg.get("translate.max_new_tokens", 256))
 

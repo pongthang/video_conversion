@@ -51,6 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="discard cached artefacts and re-run from this stage")
     g.add_argument("--clean", action="store_true",
                    help="delete intermediate files after a successful run")
+    g.add_argument("--no-gpu-lock", action="store_true",
+                   help="do not wait for another conversion to release the GPU")
     g.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     g.add_argument("--print-config", action="store_true",
                    help="print the effective configuration and exit")
@@ -166,7 +168,8 @@ def main(argv: list[str] | None = None) -> int:
                   logfile=cfg.resolve_dir("general.work_dir") / job_id(args.input) / "run.log")
 
     pipeline = Pipeline(cfg, args.input, out_path,
-                        force_from=args.force_from, glossary_path=args.glossary)
+                        force_from=args.force_from, glossary_path=args.glossary,
+                        gpu_lock=not args.no_gpu_lock)
     try:
         pipeline.run()
     except (KeyboardInterrupt, Cancelled):

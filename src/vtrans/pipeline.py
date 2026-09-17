@@ -18,7 +18,8 @@ from typing import List, Optional
 from . import asr as asr_mod
 from . import media, segment, separate, subtitles, sync, translate, tts
 from .config import Config
-from .device import DeviceInfo, describe, detect, free_memory
+from .device import DeviceInfo, describe, detect, free_memory, free_vram_gb
+from .gpulock import maybe_lock
 from .fallback import FallbackPolicy
 from .mux import mux
 from .progress import Cancelled, CancelToken, NullReporter, Reporter, estimate
@@ -50,7 +51,8 @@ class Pipeline:
                  force_from: Optional[str] = None, glossary_path: Optional[str] = None,
                  reporter: Optional[Reporter] = None,
                  token: Optional[CancelToken] = None,
-                 cpu_fallback: bool = True):
+                 cpu_fallback: bool = True,
+                 gpu_lock: bool = True):
         self.cfg = cfg
         self.source = source
         self.out_path = out_path
@@ -68,6 +70,7 @@ class Pipeline:
         self.job_dir.mkdir(parents=True, exist_ok=True)
 
         self.dev: DeviceInfo = detect(cfg.get("general.device", "auto"))
+        self.gpu_lock = gpu_lock
         self.fallback = FallbackPolicy(enabled=cpu_fallback and self.dev.is_cuda,
                                        reporter=self.reporter)
         self.results: List[StageResult] = []
@@ -151,7 +154,17 @@ class Pipeline:
         require_tool("ffmpeg", "Install it with your package manager (apt install ffmpeg).")
         require_tool("ffprobe")
 
+        with maybe_lock(self.work_root, self.dev.is_cuda, self.gpu_lock):
+            return self._run_stages()
+
+    def _run_stages(self) -> Path:
+
         LOG.info("Device: %s", describe(self.dev))
+        if self.dev.is_cuda:
+            # Stages load one model at a time and free it before the next, so
+            # this figure is what each stage individually has to work with.
+            LOG.info("Free VRAM: %.1f GB (one model resident at a time)",
+                     free_vram_gb(self.dev))
         LOG.info("Work directory: %s", self.job_dir)
 
         # Weights must be in place before the first stage_started call,
@@ -328,7 +341,7 @@ class Pipeline:
     def _stage_subtitles(self, sentences, clips, duration):
         started = self._stage(7, "Building subtitles")
         mode = self.cfg.get("subtitles.mode", "both")
-        max_chars = int(self.cfg.get("subtitles.max_line_chars", 42))
+        max_chars = int(self.cfg.get("subtitles.max_line_chars", 48))
         max_lines = int(self.cfg.get("subtitles.max_lines", 2))
 
         cues = subtitles.build_cues(sentences, clips, use_target=True,
@@ -338,7 +351,7 @@ class Pipeline:
         subtitles.write_ass(
             cues, self.ass,
             font=self.cfg.get("subtitles.font", "DejaVu Sans"),
-            size=int(self.cfg.get("subtitles.font_size", 22)),
+            size=int(self.cfg.get("subtitles.font_size", 18)),
             outline=int(self.cfg.get("subtitles.outline", 2)),
             shadow=int(self.cfg.get("subtitles.shadow", 0)),
             margin_v=int(self.cfg.get("subtitles.margin_v", 28)),

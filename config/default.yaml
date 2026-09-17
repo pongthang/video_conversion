@@ -60,7 +60,12 @@ segment:
 translate:
   # nllb | opus | none  (none = keep Chinese, useful for testing timing)
   backend: nllb
-  model: facebook/nllb-200-distilled-600M
+  # "auto" picks the largest NLLB that fits the free VRAM *and* is already
+  # downloaded: the 1.3B model needs ~3.4 GB and is a clear quality win on
+  # technical material, the 600M needs ~1.6 GB. Pin an explicit model id to
+  # override. Fetch the bigger one once with:
+  #   python -m vtrans.download --translate-model facebook/nllb-200-distilled-1.3B
+  model: auto
   src_lang: zho_Hans
   tgt_lang: eng_Latn
   batch_size: 8
@@ -106,13 +111,18 @@ subtitles:
   # .srt files are written to the work directory either way.
   mode: both
   font: DejaVu Sans
-  font_size: 22
+  # Size is relative to a fixed 384x288 reference, so one value works at any
+  # resolution: 18 renders at ~6% of frame height, close to what broadcast and
+  # streaming subtitles use. Raise it for talking-head video, lower it for
+  # screencasts and slides where the picture itself carries information.
+  font_size: 18
   # Outline/shadow make captions readable over any background.
   outline: 2
   shadow: 0
   margin_v: 28
-  # Wrap captions at this many characters, max 2 lines.
-  max_line_chars: 42
+  # Wrap captions at this many characters, max 2 lines. Wider lines mean fewer
+  # rows stacked over the picture.
+  max_line_chars: 48
   max_lines: 2
   # Also write a Chinese .srt next to the English one.
   keep_source_srt: true

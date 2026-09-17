@@ -6,6 +6,7 @@ Called by setup.sh; also usable directly:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 import urllib.request
@@ -26,6 +27,14 @@ FASTER_WHISPER_REPOS = {
     "large-v3": "Systran/faster-whisper-large-v3",
     "distil-large-v3": "Systran/faster-distil-whisper-large-v3",
 }
+
+
+def _prefer_classic_cdn() -> None:
+    """Hugging Face's Xet transfer path measured 12x slower here than the plain
+    CDN (0.26 MB/s vs 3.2 MB/s on the same 5.5 GB file), which turns a half-hour
+    download into most of a day. Export HF_HUB_DISABLE_XET=0 to opt back in.
+    """
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 
 def _print(msg: str) -> None:
@@ -98,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--models-dir", help="override models directory")
     args = parser.parse_args(argv)
 
+    _prefer_classic_cdn()
+
     cfg = Config.load(args.config)
     if args.models_dir:
         cfg.set("general.models_dir", args.models_dir)
@@ -110,6 +121,11 @@ def main(argv: list[str] | None = None) -> int:
     download_whisper(asr_model, models_dir)
 
     translate_model = args.translate_model or cfg.get("translate.model")
+    if translate_model in ("auto", "", None):
+        # setup.sh fetches the baseline model; the larger tier is opt-in because
+        # it is another ~5.5 GB.
+        from .translate import NLLB_TIERS
+        translate_model = NLLB_TIERS[-1][0]
     if translate_model and cfg.get("translate.backend") != "none":
         download_hf_repo(translate_model, models_dir)
 
