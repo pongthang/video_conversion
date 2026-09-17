@@ -43,6 +43,7 @@ class Settings:
     device: str = "auto"            # auto | cuda | cpu
     cpu_fallback: bool = True
     keep_background: bool = False
+    keep_original_audio: bool = True
     subtitles_mode: str = "both"
     font_size: int = 18
     margin_v: int = 28

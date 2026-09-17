@@ -317,7 +317,22 @@ class MainWindow(QWidget):
         pick.clicked.connect(self._choose_output_dir)
         card.add_layout(row(self.output_edit, pick, stretch_last=False))
         self.output_name = card.add_hint("")
+
+        card.add(hline())
+        self.keep_original_check = QCheckBox("Also keep the original audio as a second track")
+        self.keep_original_check.setToolTip(
+            "The English dub is always the first track and is marked as the "
+            "default. Some players ignore that and play the second track "
+            "instead, so if you hear the original language, turn this off and "
+            "the file will contain the dub alone."
+        )
+        self.keep_original_check.toggled.connect(self._keep_original_changed)
+        card.add(self.keep_original_check)
         return card
+
+    def _keep_original_changed(self) -> None:
+        self.settings.keep_original_audio = self.keep_original_check.isChecked()
+        self._persist()
 
     # ------------------------------------------------------------ preview
 
@@ -409,6 +424,7 @@ class MainWindow(QWidget):
             self.auto_radio.setChecked(True)
 
         self.fallback_check.setChecked(settings.cpu_fallback)
+        self.keep_original_check.setChecked(settings.keep_original_audio)
         self.size_slider.setValue(settings.font_size)
         self.margin_slider.setValue(settings.margin_v)
         self.wrap_slider.setValue(settings.max_line_chars)
@@ -436,6 +452,7 @@ class MainWindow(QWidget):
         s.device = ("cuda" if self.gpu_radio.isChecked()
                     else "cpu" if self.cpu_radio.isChecked() else "auto")
         s.cpu_fallback = self.fallback_check.isChecked()
+        s.keep_original_audio = self.keep_original_check.isChecked()
         s.font_size = self.size_slider.value()
         s.margin_v = self.margin_slider.value()
         s.max_line_chars = self.wrap_slider.value()
@@ -675,6 +692,7 @@ class MainWindow(QWidget):
             "tts.voice" if self.tts_combo.currentData() == "piper" else "tts.kokoro_voice":
                 self.voice_combo.currentData(),
             "separate.enabled": self.settings.keep_background,
+            "output.keep_original_audio": self.keep_original_check.isChecked(),
             "subtitles.mode": self.subs_combo.currentData(),
             "subtitles.font_size": self.size_slider.value(),
             "subtitles.margin_v": self.margin_slider.value(),
@@ -846,7 +864,8 @@ class MainWindow(QWidget):
                        self.voice_combo, self.female_radio, self.male_radio,
                        self.auto_radio, self.gpu_radio, self.cpu_radio,
                        self.subs_combo, self.size_slider, self.margin_slider,
-                       self.wrap_slider, self.url_edit, self.fallback_check):
+                       self.wrap_slider, self.url_edit, self.fallback_check,
+                       self.keep_original_check):
             widget.setEnabled(not running)
         if not running and self.hardware.has_gpu is False:
             self.gpu_radio.setEnabled(False)

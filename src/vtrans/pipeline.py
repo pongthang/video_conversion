@@ -138,6 +138,60 @@ class Pipeline:
                 return 0.0
         return 0.0
 
+    # Config keys whose value changes the output of each cached stage. Reuse is
+    # only valid while these are unchanged: without this, switching the voice
+    # from female to male, or the preset from Balanced to Best, silently
+    # replayed the audio rendered under the old settings, because the check was
+    # only ever "does clips.json exist".
+    STAGE_INPUTS = {
+        "asr": ["asr.model", "asr.language", "asr.compute_type", "asr.beam_size",
+                "asr.vad_filter", "asr.vad_min_silence_ms",
+                "asr.condition_on_previous_text", "asr.word_timestamps",
+                "asr.initial_prompt", "source.chunk_minutes"],
+        "segment": ["segment.max_chars", "segment.max_duration", "segment.min_duration",
+                    "segment.merge_gap", "segment.min_break_chars"],
+        "translate": ["translate.backend", "translate.model", "translate.src_lang",
+                      "translate.tgt_lang", "translate.num_beams",
+                      "translate.max_new_tokens", "translate.glossary"],
+        "tts": ["tts.backend", "tts.voice", "tts.kokoro_voice", "tts.length_scale",
+                "tts.noise_scale", "tts.noise_w", "tts.sentence_silence",
+                "sync.max_speedup", "sync.min_length_scale", "sync.gap_usage",
+                "sync.allow_overlap", "sync.loudness_lufs",
+                "separate.enabled", "separate.background_gain_db"],
+    }
+
+    def _fingerprint_path(self, stage: str) -> Path:
+        return self.job_dir / f"{stage}.inputs.json"
+
+    def _fingerprint(self, stage: str) -> dict:
+        return {key: self.cfg.get(key) for key in self.STAGE_INPUTS.get(stage, [])}
+
+    def _may_reuse(self, stage: str) -> bool:
+        """Whether the cached artefacts for `stage` were made with these settings.
+
+        A missing fingerprint file means the artefacts predate this check, so
+        they are accepted: re-running an expensive transcription because the
+        bookkeeping is new would be worse than the small risk of a stale reuse.
+        """
+        path = self._fingerprint_path(stage)
+        if not path.exists():
+            return True
+        try:
+            previous = read_json(path)
+        except (OSError, ValueError):
+            return True
+        current = self._fingerprint(stage)
+        if previous == current:
+            return True
+
+        changed = [k for k in current if previous.get(k) != current.get(k)]
+        LOG.info("Settings changed since the cached %s (%s); re-running it",
+                 stage, ", ".join(changed))
+        return False
+
+    def _save_fingerprint(self, stage: str) -> None:
+        write_json(self._fingerprint_path(stage), self._fingerprint(stage))
+
     def _configure_progress(self, duration: float) -> None:
         """Size the overall bar once the source duration and device are known."""
         self.reporter.configure(estimate(
@@ -221,7 +275,7 @@ class Pipeline:
 
     def _stage_asr(self, duration: float) -> List[asr_mod.ASRSegment]:
         started = self._stage(3, "Transcribing Chinese speech (Whisper)")
-        if self.asr_json.exists():
+        if self.asr_json.exists() and self._may_reuse("asr"):
             LOG.info("Reusing existing transcription")
             segments = [asr_mod.ASRSegment.from_dict(d) for d in read_json(self.asr_json)]
             self._record("asr", started, note="reused")
@@ -242,13 +296,14 @@ class Pipeline:
             lambda dev: asr_mod.transcribe_chunks(chunks, self.cfg, dev, self.models_dir,
                                                   progress=progress))
         write_json(self.asr_json, [s.to_dict() for s in segments])
+        self._save_fingerprint("asr")
         free_memory()
         self._record("asr", started)
         return segments
 
     def _stage_segment(self, asr_segments: List[asr_mod.ASRSegment]) -> List[segment.Sentence]:
         started = self._stage(4, "Assembling sentences")
-        if self.sentences_json.exists():
+        if self.sentences_json.exists() and self._may_reuse("segment"):
             sentences = [segment.Sentence.from_dict(d) for d in read_json(self.sentences_json)]
             LOG.info("Reusing %d sentences", len(sentences))
             self._record("segment", started, note="reused")
@@ -268,12 +323,13 @@ class Pipeline:
                 "Chinese speech, or try --asr-model large-v3 / --no-vad."
             )
         write_json(self.sentences_json, [s.to_dict() for s in sentences])
+        self._save_fingerprint("segment")
         self._record("segment", started)
         return sentences
 
     def _stage_translate(self, sentences: List[segment.Sentence]) -> List[segment.Sentence]:
         started = self._stage(5, "Translating to English")
-        if self.translated_json.exists():
+        if self.translated_json.exists() and self._may_reuse("translate"):
             sentences = [segment.Sentence.from_dict(d) for d in read_json(self.translated_json)]
             LOG.info("Reusing %d translations", len(sentences))
             self._record("translate", started, note="reused")
@@ -293,13 +349,14 @@ class Pipeline:
                 sentences, self.cfg, dev, self.models_dir,
                 glossary=glossary, progress=progress))
         write_json(self.translated_json, [s.to_dict() for s in sentences])
+        self._save_fingerprint("translate")
         free_memory()
         self._record("translate", started)
         return sentences
 
     def _stage_tts(self, sentences: List[segment.Sentence], duration: float) -> List[sync.Clip]:
         started = self._stage(6, "Synthesising English speech and fitting timing")
-        if self.clips_json.exists() and self.final_wav.exists():
+        if self.clips_json.exists() and self.final_wav.exists() and self._may_reuse("tts"):
             clips = [sync.Clip(**d) for d in read_json(self.clips_json)]
             LOG.info("Reusing %d rendered clips", len(clips))
             self._record("tts", started, note="reused")
@@ -335,6 +392,7 @@ class Pipeline:
             duration=duration,
         )
         write_json(self.clips_json, [c.to_dict() for c in clips])
+        self._save_fingerprint("tts")
         self._record("tts", started)
         return clips
 
