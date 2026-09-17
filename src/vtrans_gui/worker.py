@@ -35,6 +35,7 @@ class ConversionWorker(QObject):
     overall = Signal(float)                 # 0.0 - 1.0
     stage = Signal(str, str, float)         # name, title, fraction
     logged = Signal(str, str)               # message, level
+    device = Signal(str, str, float)        # "cuda"|"cpu", name, VRAM GB
     finished = Signal(dict)                 # the terminal protocol message
     failed = Signal(str)                    # human readable reason
 
@@ -118,6 +119,9 @@ class ConversionWorker(QObject):
                             float(message.get("frac", 0.0)))
         elif kind == "log":
             self.logged.emit(message.get("msg", ""), message.get("level", "info"))
+        elif kind == "device":
+            self.device.emit(message.get("device", ""), message.get("name", ""),
+                             float(message.get("vram_gb", 0.0)))
         elif kind in ("done", "error", "cancelled"):
             self._terminal = message
 

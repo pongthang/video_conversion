@@ -11,6 +11,7 @@ PYTHON_BIN=""
 FORCE_CPU=0
 WITH_DEMUCS=0
 WITH_KOKORO=0
+WITH_GUI=1
 SKIP_MODELS=0
 ASR_MODEL=""
 PIPER_VOICE=""
@@ -31,6 +32,8 @@ Usage: ./setup.sh [options]
   --cpu              Install the CPU-only build of PyTorch
   --with-demucs      Also install Demucs (keeps original music under the dub)
   --with-kokoro      Also install the Kokoro TTS voice (better prosody)
+  --with-gui         Install the desktop application (default)
+  --no-gui           Command line only; skip the desktop interface
   --asr-model NAME   Whisper model to pre-download (default: from config)
   --voice NAME       Piper voice to pre-download (default: from config)
   --skip-models      Install packages only, download models on first run
@@ -44,6 +47,8 @@ while [[ $# -gt 0 ]]; do
     --cpu)         FORCE_CPU=1; shift ;;
     --with-demucs) WITH_DEMUCS=1; shift ;;
     --with-kokoro) WITH_KOKORO=1; shift ;;
+    --with-gui)    WITH_GUI=1; shift ;;
+    --no-gui)      WITH_GUI=0; shift ;;
     --asr-model)   ASR_MODEL="$2"; shift 2 ;;
     --voice)       PIPER_VOICE="$2"; shift 2 ;;
     --skip-models) SKIP_MODELS=1; shift ;;
@@ -158,6 +163,13 @@ fi
 info "Installing pipeline dependencies"
 "$VPY" -m pip install -r requirements.txt
 
+if [[ "$WITH_GUI" -eq 1 ]]; then
+  info "Installing the desktop interface (PySide6)"
+  # Essentials rather than the full PySide6: it is a third of the size and
+  # carries every module the application actually imports.
+  "$VPY" -m pip install "PySide6-Essentials==6.8.1"
+fi
+
 if [[ "$WITH_DEMUCS" -eq 1 || "$WITH_KOKORO" -eq 1 ]]; then
   info "Installing optional components"
   [[ "$WITH_DEMUCS" -eq 1 ]] && "$VPY" -m pip install "demucs==4.0.1"
@@ -169,7 +181,7 @@ info "Installing the vtrans package (editable)"
 
 # --------------------------------------------------------------- sanity check
 info "Verifying the install"
-"$VPY" - <<'PYCHECK'
+VTRANS_CHECK_GUI="$WITH_GUI" "$VPY" - <<'PYCHECK'
 import sys
 problems = []
 try:
@@ -179,9 +191,13 @@ try:
         print(f"  gpu   {torch.cuda.get_device_name(0)}")
 except Exception as exc:
     problems.append(f"torch: {exc}")
-for module, label in [("faster_whisper", "faster-whisper"), ("transformers", "transformers"),
-                      ("piper.voice", "piper-tts"), ("soundfile", "soundfile"),
-                      ("yaml", "PyYAML"), ("vtrans", "vtrans")]:
+checks = [("faster_whisper", "faster-whisper"), ("transformers", "transformers"),
+          ("piper.voice", "piper-tts"), ("soundfile", "soundfile"),
+          ("yaml", "PyYAML"), ("vtrans", "vtrans")]
+import os
+if os.environ.get("VTRANS_CHECK_GUI") == "1":
+    checks += [("PySide6.QtWidgets", "PySide6"), ("vtrans_gui", "vtrans_gui")]
+for module, label in checks:
     try:
         __import__(module)
         print(f"  ok    {label}")
@@ -209,11 +225,24 @@ fi
 
 chmod +x "$PROJECT_DIR/convert_video.sh" 2>/dev/null || true
 
+chmod +x "$PROJECT_DIR/run_gui.sh" "$PROJECT_DIR/install_desktop.sh" 2>/dev/null || true
+
+GUI_LINES=""
+if [[ "$WITH_GUI" -eq 1 ]]; then
+  GUI_LINES="
+  Open the desktop app:
+    ./run_gui.sh
+
+  Add it to the applications menu:
+    ./install_desktop.sh
+"
+fi
+
 cat <<DONE
 
 ${GREEN}${BOLD}Setup complete.${OFF}
-
-  Convert a video:
+${GUI_LINES}
+  Convert a video from the command line:
     ./convert_video.sh input.mp4 -out output.mp4
 
   Convert a YouTube link:

@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 import threading
 import traceback
@@ -44,12 +45,19 @@ def emit(**payload: Any) -> None:
         sys.stdout.flush()
 
 
+# The pipeline colours its stage banners for the terminal. A GUI text pane
+# renders those bytes literally, as "[1m[34m[4/8] ...", so strip them on the
+# way out. The CLI and the run.log are untouched and keep their colour.
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
 class EmitHandler(logging.Handler):
     """Forwards the pipeline's log records to the parent as protocol lines."""
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: A003
         try:
-            emit(t="log", level=record.levelname.lower(), msg=record.getMessage())
+            emit(t="log", level=record.levelname.lower(),
+                 msg=_ANSI.sub("", record.getMessage()))
         except Exception:  # noqa: BLE001 - logging must never break the run
             pass
 
@@ -84,7 +92,14 @@ def main(argv: list[str] | None = None) -> int:
     out_path = Path(args.out).expanduser().resolve()
     work_dir = cfg.resolve_dir("general.work_dir") / job_id(args.input)
     setup_logging(False, logfile=work_dir / "run.log")
-    # Route log records to the parent as well as to the file.
+    # Route log records to the parent as protocol messages, and drop the
+    # console handler setup_logging installed. Leaving it in place would send
+    # every line to stderr as well, which the parent also captures and shows -
+    # the GUI log then lists everything twice.
+    for handler in list(logging.getLogger().handlers):
+        if isinstance(handler, logging.StreamHandler) and not isinstance(
+                handler, logging.FileHandler):
+            logging.getLogger().removeHandler(handler)
     logging.getLogger("vtrans").addHandler(EmitHandler())
 
     token = CancelToken()
@@ -105,6 +120,11 @@ def main(argv: list[str] | None = None) -> int:
         token=token,
         cpu_fallback=not args.no_cpu_fallback,
     )
+
+    # Tell the parent what hardware this run is actually on, so the window can
+    # show it rather than leaving the user to infer it from the log.
+    emit(t="device", device=pipeline.dev.device, name=pipeline.dev.name,
+         vram_gb=round(pipeline.dev.total_vram_gb, 1))
 
     try:
         final = pipeline.run()

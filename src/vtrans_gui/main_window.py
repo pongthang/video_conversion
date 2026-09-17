@@ -356,6 +356,14 @@ class MainWindow(QWidget):
         button_row.addWidget(self.elapsed_label)
         card.add_layout(button_row)
 
+        self.device_badge = Badge("", "muted")
+        self.device_badge.setVisible(False)
+        device_row = QHBoxLayout()
+        device_row.setContentsMargins(0, 0, 0, 0)
+        device_row.addWidget(self.device_badge)
+        device_row.addStretch(1)
+        card.add_layout(device_row)
+
         self.overall_bar = QProgressBar()
         self.overall_bar.setRange(0, 1000)
         self.overall_bar.setValue(0)
@@ -740,6 +748,7 @@ class MainWindow(QWidget):
         self.overall_bar.setValue(0)
         self.stage_bar.setValue(0)
         self.stage_label.setText("Starting...")
+        self.device_badge.setVisible(False)
         self.started_at = time.time()
         self._set_running(True)
 
@@ -747,6 +756,7 @@ class MainWindow(QWidget):
         self.worker.overall.connect(self._on_overall)
         self.worker.stage.connect(self._on_stage)
         self.worker.logged.connect(self._on_log)
+        self.worker.device.connect(self._on_device)
         self.worker.finished.connect(self._on_finished)
         self.worker.failed.connect(self._on_failed)
         self.worker.start(
@@ -785,6 +795,17 @@ class MainWindow(QWidget):
             self.gpu_radio.setEnabled(False)
 
     # ------------------------------------------------------------ signals
+
+    def _on_device(self, device: str, name: str, vram_gb: float) -> None:
+        """Say plainly which hardware the run is on: on CPU it is many times
+        slower, and that is worth seeing before waiting an hour for it."""
+        if device == "cuda":
+            self.device_badge.update_badge(
+                f"Running on GPU - {self.hardware.short_gpu_name or name}", "ok")
+        else:
+            self.device_badge.update_badge(
+                "Running on CPU - this will be much slower", "warn")
+        self.device_badge.setVisible(True)
 
     def _on_overall(self, value: float) -> None:
         self.overall_bar.setValue(int(value * 1000))

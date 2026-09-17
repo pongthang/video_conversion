@@ -31,10 +31,20 @@ BACKEND_DEFAULT_MODELS = {
 # before the next stage, so the whole card is available here - measured on a
 # 4 GB GTX 1650: Whisper large-v3 peaks at 1.9 GB and is fully released before
 # translation starts. min_free_gb includes room for beam-search activations.
+# (repo, min_free_vram_gb, batch_size, expected_weight_gb)
+# expected_weight_gb is what a complete download of the weights measures on
+# disk; _is_cached compares against it so a half-finished download is not
+# mistaken for a usable model.
 NLLB_TIERS = [
-    ("facebook/nllb-200-distilled-1.3B", 3.4, 4),
-    ("facebook/nllb-200-distilled-600M", 1.6, 8),
+    ("facebook/nllb-200-distilled-1.3B", 3.4, 4, 5.2),
+    ("facebook/nllb-200-distilled-600M", 1.6, 8, 2.3),
 ]
+
+# Accept a weight file a little under the reference size: the same model can be
+# published in float16 or with a different shard split, and the point here is
+# to catch a download that stopped a long way short, not to pin an exact byte
+# count.
+WEIGHT_SIZE_TOLERANCE = 0.85
 
 
 def _collapse_repeats(text: str) -> str:
@@ -88,6 +98,14 @@ def apply_glossary(text: str, glossary: Dict[str, str]) -> str:
 WEIGHT_SUFFIXES = (".safetensors", ".bin")
 
 
+def _expected_weight_bytes(repo_id: str) -> int:
+    """Reference size of a complete weight download, 0 if the repo is unknown."""
+    for name, _need, _batch, weight_gb in NLLB_TIERS:
+        if name == repo_id:
+            return int(weight_gb * WEIGHT_SIZE_TOLERANCE * (1024 ** 3))
+    return 0
+
+
 def _is_cached(repo_id: str, models_dir: Path) -> bool:
     """True only if the *weights* are fully downloaded.
 
@@ -96,6 +114,13 @@ def _is_cached(repo_id: str, models_dir: Path) -> bool:
     looks complete for the several minutes its multi-GB weights are still in
     flight. Selecting it then would stall the run on the very download this
     check is meant to avoid.
+
+    Nor is "a weight file exists and is over a megabyte" enough, which is what
+    this used to test. A 5.2 GB download interrupted at 300 MB leaves a file
+    that passes that bar comfortably, so the run picked the larger tier and
+    then blocked on the download anyway - the exact failure the check exists to
+    prevent, observed with nllb-200-distilled-1.3B. The weights are therefore
+    measured against the size a complete download is known to have.
     """
     cache = Path(hf_cache_dir(models_dir))
     folder = cache / ("models--" + repo_id.replace("/", "--"))
@@ -110,19 +135,35 @@ def _is_cached(repo_id: str, models_dir: Path) -> bool:
     snapshots = folder / "snapshots"
     if not snapshots.is_dir():
         return False
+
+    minimum = _expected_weight_bytes(repo_id)
     for rev in snapshots.iterdir():
         if not rev.is_dir():
             continue
+        # A sharded model splits its weights over several files, so total them
+        # rather than looking for one big enough on its own.
+        total = 0
         for entry in rev.iterdir():
             if not entry.name.endswith(WEIGHT_SUFFIXES):
                 continue
             try:
                 # resolve() follows the symlink into blobs/; a missing target
-                # or a stub-sized file means the download never completed.
-                if entry.resolve().stat().st_size > 1_000_000:
-                    return True
+                # means the file was never fetched.
+                total += entry.resolve().stat().st_size
             except OSError:
                 continue
+        if total == 0:
+            continue
+        if minimum == 0:
+            # Not one of our known tiers: fall back to "there are real weights
+            # here", which is all that can be said without a reference size.
+            if total > 1_000_000:
+                return True
+            continue
+        if total >= minimum:
+            return True
+        LOG.debug("%s looks partially downloaded (%.2f of %.2f GB expected)",
+                  repo_id, total / (1024 ** 3), minimum / (1024 ** 3))
     return False
 
 
@@ -141,7 +182,7 @@ def select_nllb_model(dev: DeviceInfo, models_dir: Path) -> Tuple[str, Optional[
         LOG.info("Translating on CPU with %s", smallest[0])
         return smallest[0], smallest[2]
 
-    for name, need, batch in NLLB_TIERS:
+    for name, need, batch, _weight_gb in NLLB_TIERS:
         if free < need:
             continue
         if not _is_cached(name, models_dir):
