@@ -19,7 +19,9 @@ from . import asr as asr_mod
 from . import media, segment, separate, subtitles, sync, translate, tts
 from .config import Config
 from .device import DeviceInfo, describe, detect, free_memory
+from .fallback import FallbackPolicy
 from .mux import mux
+from .progress import Cancelled, CancelToken, NullReporter, Reporter, estimate
 from .utils import (banner, fmt_duration, human_size, media_duration, read_json,
                     require_tool, write_json)
 
@@ -45,11 +47,20 @@ class StageResult:
 
 class Pipeline:
     def __init__(self, cfg: Config, source: str, out_path: Path, *,
-                 force_from: Optional[str] = None, glossary_path: Optional[str] = None):
+                 force_from: Optional[str] = None, glossary_path: Optional[str] = None,
+                 reporter: Optional[Reporter] = None,
+                 token: Optional[CancelToken] = None,
+                 cpu_fallback: bool = True):
         self.cfg = cfg
         self.source = source
         self.out_path = out_path
         self.glossary_path = glossary_path
+        # The CLI passes nothing and gets a reporter whose methods are no-ops,
+        # so the stage bodies below need no "if reporter" branching.
+        self.reporter = reporter or NullReporter()
+        self.token = token
+        if token is not None and self.reporter.token is None:
+            self.reporter.token = token
 
         self.models_dir = cfg.resolve_dir("general.models_dir")
         self.work_root = cfg.resolve_dir("general.work_dir")
@@ -57,6 +68,8 @@ class Pipeline:
         self.job_dir.mkdir(parents=True, exist_ok=True)
 
         self.dev: DeviceInfo = detect(cfg.get("general.device", "auto"))
+        self.fallback = FallbackPolicy(enabled=cpu_fallback and self.dev.is_cuda,
+                                       reporter=self.reporter)
         self.results: List[StageResult] = []
         self._invalidate_from(force_from)
 
@@ -99,11 +112,38 @@ class Pipeline:
         LOG.info("Forcing re-run from stage '%s'", stage)
 
     def _stage(self, index: int, title: str):
+        self.reporter.check_cancelled()
         banner(index, len(STAGES), title)
+        self.reporter.stage_started(STAGES[index - 1], title)
         return time.time()
 
     def _record(self, name: str, started: float, note: str = "") -> None:
         self.results.append(StageResult(name, note, time.time() - started))
+        self.reporter.stage_finished(name)
+
+    def _duration_hint(self) -> float:
+        """Source length before fetching, for weighting. 0 when unknowable.
+
+        Only the mux weight depends on it, and only past the one-hour mark, so
+        a URL whose length is not yet known simply gets the default weighting.
+        """
+        candidate = Path(self.source)
+        if candidate.is_file():
+            try:
+                return media_duration(candidate)
+            except Exception:  # noqa: BLE001 - weighting is advisory
+                return 0.0
+        return 0.0
+
+    def _configure_progress(self, duration: float) -> None:
+        """Size the overall bar once the source duration and device are known."""
+        self.reporter.configure(estimate(
+            STAGES,
+            on_cuda=self.dev.is_cuda,
+            separating=bool(self.cfg.get("separate.enabled", False)),
+            is_url=media.is_url(self.source),
+            duration=duration,
+        ))
 
     # -- stages ----------------------------------------------------------
 
@@ -113,6 +153,10 @@ class Pipeline:
 
         LOG.info("Device: %s", describe(self.dev))
         LOG.info("Work directory: %s", self.job_dir)
+
+        # Weights must be in place before the first stage_started call,
+        # otherwise that stage contributes 0 and the bar tops out short of 1.0.
+        self._configure_progress(self._duration_hint())
 
         video = self._stage_fetch()
         duration = media_duration(video)
@@ -127,6 +171,7 @@ class Pipeline:
         ass_path, srt_path, zh_srt_path = self._stage_subtitles(sentences, clips, duration)
         final = self._stage_mux(video, background, ass_path, srt_path, zh_srt_path, duration)
 
+        self.reporter.stage_progress(1.0)
         self._report()
         return final
 
@@ -150,11 +195,13 @@ class Pipeline:
         media.extract_audio(self.video_path, hifi,
                             sample_rate=int(self.cfg.get("source.out_sample_rate", 48000)),
                             channels=2)
-        background = separate.separate_background(
-            hifi, self.job_dir, self.models_dir, self.dev,
-            model=self.cfg.get("separate.model", "htdemucs"),
-            segment=int(self.cfg.get("separate.segment", 7)),
-        )
+        background = self.fallback.run_stage(
+            "separate", self.dev,
+            lambda dev: separate.separate_background(
+                hifi, self.job_dir, self.models_dir, dev,
+                model=self.cfg.get("separate.model", "htdemucs"),
+                segment=int(self.cfg.get("separate.segment", 7)),
+            ))
         free_memory()
         self._record("separate", started)
         return background
@@ -172,7 +219,15 @@ class Pipeline:
         LOG.info("Processing %d chunk(s) covering %s", len(spans), fmt_duration(duration))
         chunks = media.split_audio(self.audio_wav, spans, self.job_dir / "chunks",
                                    sample_rate=int(self.cfg.get("source.asr_sample_rate", 16000)))
-        segments = asr_mod.transcribe_chunks(chunks, self.cfg, self.dev, self.models_dir)
+
+        def progress(done: int, total: int) -> None:
+            self.reporter.stage_progress(done / max(1, total))
+            self.reporter.check_cancelled()
+
+        segments = self.fallback.run_stage(
+            "asr", self.dev,
+            lambda dev: asr_mod.transcribe_chunks(chunks, self.cfg, dev, self.models_dir,
+                                                  progress=progress))
         write_json(self.asr_json, [s.to_dict() for s in segments])
         free_memory()
         self._record("asr", started)
@@ -216,10 +271,14 @@ class Pipeline:
         def progress(done: int, total: int) -> None:
             if done % 40 == 0 or done == total:
                 LOG.info("  translated %d/%d unique lines", done, total)
+            self.reporter.stage_progress(done / max(1, total))
+            self.reporter.check_cancelled()
 
-        sentences = translate.translate_sentences(
-            sentences, self.cfg, self.dev, self.models_dir,
-            glossary=glossary, progress=progress)
+        sentences = self.fallback.run_stage(
+            "translate", self.dev,
+            lambda dev: translate.translate_sentences(
+                sentences, self.cfg, dev, self.models_dir,
+                glossary=glossary, progress=progress))
         write_json(self.translated_json, [s.to_dict() for s in sentences])
         free_memory()
         self._record("translate", started)
@@ -233,18 +292,24 @@ class Pipeline:
             self._record("tts", started, note="reused")
             return clips
 
-        engine = tts.build_engine(self.cfg, self.models_dir,
-                                  device=self.dev.device if self.dev.is_cuda else "cpu")
-
         def progress(done: int, total: int) -> None:
             LOG.info("  synthesised %d/%d lines", done, total)
+            # TTS is followed by mixing and loudness normalisation, so leave
+            # headroom at the top of the stage rather than reaching 1.0 here.
+            self.reporter.stage_progress(0.9 * done / max(1, total))
+            self.reporter.check_cancelled()
 
-        try:
-            clips = sync.render_track(sentences, engine, self.cfg, duration,
-                                      self.dub_wav, progress=progress)
-        finally:
-            engine.close()
-            free_memory()
+        def render(dev: DeviceInfo):
+            engine = tts.build_engine(self.cfg, self.models_dir,
+                                      device=dev.device if dev.is_cuda else "cpu")
+            try:
+                return sync.render_track(sentences, engine, self.cfg, duration,
+                                         self.dub_wav, progress=progress)
+            finally:
+                engine.close()
+                free_memory()
+
+        clips = self.fallback.run_stage("tts", self.dev, render)
 
         background = self.job_dir / "background.wav"
         sync.mix_with_background(
@@ -295,8 +360,13 @@ class Pipeline:
                    duration: float) -> Path:
         started = self._stage(8, "Muxing final video")
         mode = self.cfg.get("subtitles.mode", "both")
+        def on_progress(fraction: float) -> None:
+            self.reporter.stage_progress(fraction)
+
         final = mux(
             video, self.final_wav, self.out_path,
+            on_progress=on_progress,
+            should_cancel=(lambda: self.reporter.cancelled),
             ass_path=ass_path, srt_path=srt_path, zh_srt_path=zh_srt_path,
             burn=mode in ("burn", "both"),
             soft=mode in ("soft", "both"),
@@ -320,6 +390,8 @@ class Pipeline:
             suffix = f" ({r.note})" if r.note else ""
             LOG.info("  %-10s %8s%s", r.name, fmt_duration(r.seconds), suffix)
         LOG.info("  %-10s %8s", "total", fmt_duration(total))
+        if self.fallback.demoted:
+            LOG.warning("%s", self.fallback.summary())
         LOG.info("")
         LOG.info("Output:     %s (%s)", self.out_path, human_size(self.out_path.stat().st_size))
         LOG.info("Subtitles:  %s", self.en_srt)

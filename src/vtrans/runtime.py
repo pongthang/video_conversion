@@ -56,26 +56,74 @@ def _nvidia_lib_dirs() -> List[Path]:
     return dirs
 
 
+def _preload_shared_libraries(dirs: List[Path]) -> int:
+    """dlopen the CUDA libraries into the global namespace, by absolute path.
+
+    Setting LD_LIBRARY_PATH from inside a running process does nothing: glibc
+    reads it once, at exec time, so a value assigned to os.environ here is only
+    inherited by children. convert_video.sh got away with exporting it because
+    it did so before starting Python at all, but the GUI has no wrapper script.
+
+    Loading each library explicitly with RTLD_GLOBAL sidesteps the search path
+    entirely. By the time CTranslate2 dlopens "libcudnn_ops.so.9" it is already
+    resident and its symbols are visible, so the request resolves regardless of
+    where the file lives.
+
+    Interdependencies mean order matters and is not worth hardcoding, so this
+    retries the failures until a pass makes no further progress.
+    """
+    import ctypes
+
+    pending: List[Path] = []
+    for directory in dirs:
+        pending.extend(sorted(directory.glob("*.so*")))
+    if not pending:
+        return 0
+
+    loaded = 0
+    while pending:
+        failed: List[Path] = []
+        for lib in pending:
+            try:
+                ctypes.CDLL(str(lib), mode=ctypes.RTLD_GLOBAL)
+                loaded += 1
+            except OSError:
+                failed.append(lib)
+        if len(failed) == len(pending):
+            # No progress this pass: the rest genuinely cannot load (wrong
+            # driver, missing dependency). CTranslate2 will fall back or fail
+            # with its own message, which is more informative than ours.
+            LOG.debug("Could not preload: %s", [f.name for f in failed])
+            break
+        pending = failed
+    return loaded
+
+
 def _expose_cuda_libraries() -> None:
     dirs = _nvidia_lib_dirs()
     if not dirs:
         return
+
     if IS_WINDOWS:
-        # Since 3.8 Windows ignores PATH for extension-module DLL loading.
+        # add_dll_directory is the supported runtime mechanism on Windows and
+        # does take effect immediately, unlike LD_LIBRARY_PATH on Linux.
         for directory in dirs:
             try:
                 os.add_dll_directory(str(directory))
             except (OSError, AttributeError) as exc:
                 LOG.debug("add_dll_directory(%s) failed: %s", directory, exc)
-        # CTranslate2 resolves some libraries through PATH regardless, so set
-        # both and let whichever mechanism applies find them.
         os.environ["PATH"] = os.pathsep.join(
             [str(d) for d in dirs] + [os.environ.get("PATH", "")]
         )
     else:
+        # Still exported so that child processes (demucs, yt-dlp) inherit it.
         existing = os.environ.get("LD_LIBRARY_PATH", "")
         parts = [str(d) for d in dirs] + ([existing] if existing else [])
         os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(parts)
+        # ...but this process needs them resident, not merely findable.
+        count = _preload_shared_libraries(dirs)
+        LOG.debug("Preloaded %d CUDA shared libraries", count)
+
     LOG.debug("CUDA library directories: %s", [str(d) for d in dirs])
 
 

@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from . import binaries
 from .binaries import IS_WINDOWS
-from .utils import ffmpeg_has, has_audio_stream, run
+from .utils import ffmpeg_has, has_audio_stream, run, run_with_progress
 
 LOG = logging.getLogger("vtrans")
 
@@ -75,7 +75,8 @@ def mux(video: Path, audio: Path, out_path: Path, *, ass_path: Optional[Path] = 
         srt_path: Optional[Path] = None, zh_srt_path: Optional[Path] = None,
         burn: bool = True, soft: bool = True, video_codec: str = "auto",
         crf: int = 20, preset: str = "medium", audio_bitrate: str = "192k",
-        keep_original_audio: bool = True, duration: Optional[float] = None) -> Path:
+        keep_original_audio: bool = True, duration: Optional[float] = None,
+        on_progress=None, should_cancel=None) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     burning = burn and ass_path is not None and ass_path.exists()
     codec = pick_video_codec(video_codec, burning)
@@ -154,5 +155,15 @@ def mux(video: Path, audio: Path, out_path: Path, *, ass_path: Optional[Path] = 
     cmd.append(str(out_path))
 
     LOG.info("Muxing final video (video codec: %s, burn-in subtitles: %s)", codec, burning)
-    run(cmd, capture=False, desc="ffmpeg (mux)")
+
+    if on_progress or should_cancel:
+        # The encode is the longest single ffmpeg call in the run, so when a
+        # front end is watching, stream ffmpeg's own progress rather than
+        # leaving the bar frozen for minutes.
+        cmd += ["-progress", "pipe:1", "-nostats"]
+        run_with_progress(cmd, total_seconds=duration or 0.0,
+                          on_progress=on_progress, should_cancel=should_cancel,
+                          desc="ffmpeg (mux)")
+    else:
+        run(cmd, capture=False, desc="ffmpeg (mux)")
     return out_path

@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import Config
 from .runtime import prepare as prepare_runtime
 from .pipeline import STAGES, Pipeline, job_id
+from .progress import Cancelled
 from .tts import PIPER_VOICES
 from .utils import Colors, setup_logging
 
@@ -168,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                         force_from=args.force_from, glossary_path=args.glossary)
     try:
         pipeline.run()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, Cancelled):
         print("\nInterrupted. Re-run the same command to resume from the last "
               "completed stage.", file=sys.stderr)
         return 130
