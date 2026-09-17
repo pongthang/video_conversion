@@ -1,11 +1,97 @@
-# Building the Windows installer
+# Windows
 
-The application code is finished and tested. This directory turns it into
-`MikoVideoTranslator-1.0.0-Setup.exe`. **The build has to run on Windows** —
-Inno Setup is a Windows compiler, so the `.exe` cannot be produced on the Linux
-development machine.
+Two ways to get this running on Windows. **Set up from a clone** is the one to
+use on your own machine. **Build the installer** is for handing a single `.exe`
+to someone else.
 
-## One-time prerequisites
+---
+
+# Set up from a clone
+
+Clones the source only — about 500 KB. Everything heavy (PyTorch, ffmpeg, the
+models: roughly 3–8 GB depending on options) is downloaded by the setup script.
+
+## Prerequisites
+
+1. **Python 3.9–3.11** from https://www.python.org/downloads/ — tick
+   **"Add python.exe to PATH"** during install. 3.11 is the safest choice;
+   3.12+ does not have wheels for every dependency yet.
+2. **Git** from https://git-scm.com/download/win
+3. An **NVIDIA GPU with a current driver**, if you want it to be fast. Nothing
+   else to install: the CUDA runtime arrives with PyTorch as pip wheels.
+
+ffmpeg is *not* a prerequisite — the setup script downloads a static build into
+`bin\` by itself.
+
+## Steps
+
+```powershell
+git clone <repo-url> vtrans
+cd vtrans
+powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+
+`-ExecutionPolicy Bypass` is needed because the script is unsigned; it applies
+to that one command only and changes nothing on the machine.
+
+Setup takes 15–40 minutes, almost all of it downloading. It:
+
+- finds a usable Python and builds a virtualenv in `.venv`
+- downloads a static **ffmpeg** into `bin\`
+- installs **PyTorch**, with CUDA if `nvidia-smi` reports a GPU, otherwise the
+  CPU build (2.5 GB vs 200 MB)
+- installs the pipeline dependencies and the desktop interface
+- verifies every import and prints whether **CUDA is available**
+- downloads the models
+
+Then:
+
+```powershell
+.\run_gui.bat                                   # desktop app
+.\convert_video.bat input.mp4 -out output.mp4   # command line
+```
+
+Re-running `setup.ps1` is safe and cheap: every step is skipped when already
+satisfied, so it doubles as a repair and as the way to resume an interrupted
+model download.
+
+## Options
+
+| Flag | Effect |
+|---|---|
+| `-Cpu` | CPU-only PyTorch even if a GPU is present |
+| `-NoGui` | command line only, skip PySide6 |
+| `-WithKokoro` | install the higher-quality Kokoro voice |
+| `-WithDemucs` | keep the original music under the dub |
+| `-SkipModels` | packages only; models download on first use |
+| `-AsrModel small` | pre-download a specific Whisper size |
+| `-Python C:\path\to\python.exe` | use a specific interpreter |
+
+## If something goes wrong
+
+**"No usable Python 3.9-3.11 found"** — the Microsoft Store ships a stub
+`python.exe` on PATH that does nothing, which is why the script tests whether a
+candidate actually runs. Install real Python from python.org, or pass
+`-Python` explicitly.
+
+**`cuda=False` in the verification** — the app will still work but every
+conversion runs on the CPU and takes many times longer. Update the NVIDIA
+driver and re-run `setup.ps1`.
+
+**The app window does not appear** — run `.venv\Scripts\python.exe -m vtrans_gui`
+from a terminal to see the error. `run_gui.bat` uses `pythonw.exe`, which has
+no console.
+
+**A model download stopped partway** — re-run `setup.ps1`; it resumes.
+
+---
+
+# Build the installer
+
+For distributing a single `.exe` that installs everything. **The build has to
+run on Windows** — Inno Setup is a Windows compiler.
+
+## Build prerequisites
 
 1. **Inno Setup 6** — https://jrsoftware.org/isdl.php (default install location)
 2. **PowerShell 5+** — already on Windows 10/11

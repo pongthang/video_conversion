@@ -1,0 +1,12 @@
+# Windows scripts must keep CRLF: cmd.exe mis-parses a .bat file with LF
+# endings, typically failing on the last line of a block.
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Shell scripts must keep LF even when checked out on Windows.
+*.sh   text eol=lf
+
+# Never touch binaries.
+*.ico  binary
+*.png  binary
+*.onnx binary

@@ -29,8 +29,17 @@ is on the GPU or the CPU, because the difference is large.
 
 **Windows**
 
-A desktop installer is in [windows/](windows/) — written but not yet built,
-since building it needs a Windows machine. See [windows/README.md](windows/README.md).
+```powershell
+git clone <repo-url> vtrans
+cd vtrans
+powershell -ExecutionPolicy Bypass -File setup.ps1
+.\run_gui.bat
+```
+
+Needs Python 3.9-3.11 and Git; ffmpeg, PyTorch and the models are downloaded by
+the setup script. Full instructions, options and troubleshooting are in
+[windows/README.md](windows/README.md), which also covers building a
+distributable installer.
 
 ---
 
