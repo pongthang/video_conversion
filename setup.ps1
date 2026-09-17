@@ -40,7 +40,13 @@ param(
     [switch]$SkipModels
 )
 
-$ErrorActionPreference = "Stop"
+# Deliberately NOT "Stop". With Stop, PowerShell 5.1 turns anything a native
+# command writes to stderr into a terminating error, which breaks this script
+# in two ways: probes like `python -c "import torch"` are *meant* to fail when
+# the package is absent, and pip and huggingface_hub write ordinary progress
+# and warnings to stderr. Every external call below checks $LASTEXITCODE
+# explicitly instead, and the cmdlets that must throw say -ErrorAction Stop.
+$ErrorActionPreference = "Continue"
 $ProgressPreference    = "SilentlyContinue"   # a visible progress bar makes downloads far slower
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
@@ -116,13 +122,13 @@ if ((Test-Path (Join-Path $binDir "ffmpeg.exe")) -and (Test-Path (Join-Path $bin
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
     $zip = Join-Path $env:TEMP "vtrans-ffmpeg.zip"
     try {
-        Invoke-WebRequest -Uri $FfmpegUrl -OutFile $zip -UseBasicParsing
+        Invoke-WebRequest -Uri $FfmpegUrl -OutFile $zip -UseBasicParsing -ErrorAction Stop
     } catch {
         Die "Could not download ffmpeg: $_`nDownload it yourself from https://www.gyan.dev/ffmpeg/builds/ and put ffmpeg.exe and ffprobe.exe in $binDir"
     }
     $stage = Join-Path $env:TEMP "vtrans-ffmpeg"
     if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-    Expand-Archive -Path $zip -DestinationPath $stage -Force
+    Expand-Archive -Path $zip -DestinationPath $stage -Force -ErrorAction Stop
     foreach ($name in @("ffmpeg.exe", "ffprobe.exe")) {
         $found = Get-ChildItem -Path $stage -Recurse -Filter $name -File | Select-Object -First 1
         if ($found) { Copy-Item $found.FullName -Destination $binDir -Force }
@@ -150,11 +156,11 @@ function Test-NvidiaGpu {
     if ($Cpu) { return $false }
     $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
     if (-not $smi) { return $false }
-    & $smi.Source -L *> $null
+    & $smi.Source -L 2>&1 | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
-& $vpy -c "import torch" *> $null
+& $vpy -c "import torch" 2>&1 | Out-Null
 if ($LASTEXITCODE -eq 0) {
     Info "PyTorch already installed ($(& $vpy -c 'import torch; print(torch.__version__)'))"
 } else {

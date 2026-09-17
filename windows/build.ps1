@@ -22,7 +22,13 @@ param(
     [switch]$SkipInstaller
 )
 
-$ErrorActionPreference = "Stop"
+# Deliberately NOT "Stop". With Stop, PowerShell 5.1 turns anything a native
+# command writes to stderr into a terminating error, which breaks this script
+# in two ways: probes like `python -c "import torch"` are *meant* to fail when
+# the package is absent, and pip and huggingface_hub write ordinary progress
+# and warnings to stderr. Every external call below checks $LASTEXITCODE
+# explicitly instead, and the cmdlets that must throw say -ErrorAction Stop.
+$ErrorActionPreference = "Continue"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $root = Split-Path -Parent $here
 
@@ -45,7 +51,7 @@ if (-not $SkipRuntime) {
 
         if (-not (Test-Path $archive)) {
             try {
-                Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+                Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing -ErrorAction Stop
             } catch {
                 Die "Could not download CPython: $_`nCheck the version/tag, or place $file in $vendor manually."
             }
