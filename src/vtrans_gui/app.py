@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from vtrans import binaries
@@ -37,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName("Miko Video Translator")
     app.setStyleSheet(STYLESHEET)
+
+    icon_path = Path(__file__).resolve().parent / "assets" / "app.ico"
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     if not _check_prerequisites(app):
         return 1

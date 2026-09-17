@@ -4,10 +4,34 @@ Takes a Chinese-language video (local file or YouTube URL) and produces an
 English-dubbed video with burned-in English captions. Everything runs locally
 with open-source models — no API keys, no per-minute billing.
 
+**Linux / macOS — command line**
+
 ```
 ./setup.sh                                    # once per machine
 ./convert_video.sh input.mp4 -out output.mp4  # per video
 ```
+
+**Windows — desktop app**
+
+Download and run `MikoVideoTranslator-Setup.exe`. It installs everything,
+including ffmpeg and the models, and puts an icon on the desktop. Build
+instructions are in [windows/README.md](windows/README.md).
+
+**Either platform — desktop app from a source checkout**
+
+```
+./setup.sh
+.venv/bin/python -m pip install PySide6-Essentials
+.venv/bin/python -m vtrans_gui
+```
+
+The window takes a video file, a URL or a drag-and-drop, offers a male or
+female voice, shows what each model needs against the GPU it detected, and
+previews the captions on a frame of your own video so the size and position
+can be judged before committing to a conversion. Conversions run in a child
+process, so a GPU driver crash reports an error instead of taking the window
+down with it, and each stage falls back to the CPU on its own if the GPU
+fails.
 
 ---
 
