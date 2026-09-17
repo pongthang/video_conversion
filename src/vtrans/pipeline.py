@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import shutil
 import time
@@ -32,10 +33,32 @@ STAGES = ["fetch", "separate", "asr", "segment", "translate", "tts", "subtitles"
 
 
 def job_id(source: str) -> str:
-    """Stable id so re-running the same input resumes in the same work dir."""
-    name = Path(source).stem if not media.is_url(source) else "url"
+    """Stable id so re-running the same input resumes in the same work dir.
+
+    The id has to identify the *file*, not the spelling of its path. Qt's file
+    dialog hands back "D:/dir/clip.mp4" while a shell hands back
+    "D:\\dir\\clip.mp4", and hashing those raw strings gave the same video two
+    different work directories: the GUI then reused its own stale artefacts and
+    a command line --force-from cleaned a directory the GUI never looked at.
+
+    So the path is resolved first, separators are normalised, and on Windows
+    the result is lowercased because its filesystem is case-insensitive.
+    """
+    if media.is_url(source):
+        name, key = "url", source.strip()
+    else:
+        path = Path(source)
+        try:
+            resolved = path.resolve()
+        except (OSError, RuntimeError):     # broken symlink, or path too long
+            resolved = path.absolute()
+        name = resolved.stem
+        key = str(resolved).replace("\\", "/")
+        if os.name == "nt":
+            key = key.lower()
+
     slug = re.sub(r"[^A-Za-z0-9_-]+", "-", name)[:40].strip("-") or "job"
-    digest = hashlib.sha1(source.encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
     return f"{slug}-{digest}"
 
 

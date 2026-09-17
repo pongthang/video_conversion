@@ -43,7 +43,11 @@ class Settings:
     device: str = "auto"            # auto | cuda | cpu
     cpu_fallback: bool = True
     keep_background: bool = False
-    keep_original_audio: bool = True
+    # Off by default in the desktop app, unlike the command line. The dub is
+    # track one and marked default, but several Windows players ignore that
+    # and play the second track, so keeping the original makes the app look
+    # like it did not dub anything at all. One track cannot be got wrong.
+    keep_original_audio: bool = False
     subtitles_mode: str = "both"
     font_size: int = 18
     margin_v: int = 28

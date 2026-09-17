@@ -321,10 +321,11 @@ class MainWindow(QWidget):
         card.add(hline())
         self.keep_original_check = QCheckBox("Also keep the original audio as a second track")
         self.keep_original_check.setToolTip(
-            "The English dub is always the first track and is marked as the "
-            "default. Some players ignore that and play the second track "
-            "instead, so if you hear the original language, turn this off and "
-            "the file will contain the dub alone."
+            "Off by default. The English dub is track one and is marked as the "
+            "default track, but several players ignore that and play the second "
+            "track, which sounds as though nothing was dubbed. Turn this on only "
+            "if you want the original language kept and your player lets you "
+            "choose the track."
         )
         self.keep_original_check.toggled.connect(self._keep_original_changed)
         card.add(self.keep_original_check)
